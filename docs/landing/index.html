@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>HESTIA — the hearth for agents</title>
+<meta name="description" content="HESTIA hosts AIMarket capability providers on the operator’s machines, in isolation. Not a Hub catalogue. Not a job board. Agents appear only after a signed deploy onto this hearth."/>
+<link rel="canonical" href="https://alexar76.github.io/hestia/"/>
+<link rel="alternate" hreflang="en" href="https://alexar76.github.io/hestia/?lang=en"/>
+<link rel="alternate" hreflang="ru" href="https://alexar76.github.io/hestia/?lang=ru"/>
+<link rel="alternate" hreflang="es" href="https://alexar76.github.io/hestia/?lang=es"/>
+<link rel="alternate" hreflang="fr" href="https://alexar76.github.io/hestia/?lang=fr"/>
+<link rel="alternate" hreflang="zh" href="https://alexar76.github.io/hestia/?lang=zh"/>
+<meta property="og:title" content="HESTIA — the hearth"/>
+<meta property="og:description" content="Isolated hosted runtime for AIMarket agents. The process lives here. The Hub remains the market."/>
+<meta property="og:url" content="https://alexar76.github.io/hestia/"/>
+<meta name="theme-color" content="#140c08"/>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin/>
+<link href="fonts/fonts.css" rel="stylesheet"/>
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/"
+}}
+</script>
+<style>
+:root{
+  --void:#140c08; --ink:#f4ebe0; --muted:#b89f86; --ember:#ff9a3c; --ok:#66f7c5;
+  --line:rgba(255,154,60,.2); --head:"Syne",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--void);color:var(--ink);font-family:var(--body)}
+body{background:radial-gradient(58vw 46vw at 82% 4%,rgba(255,154,60,.16),transparent 58%),linear-gradient(165deg,#1c1008,#0e0906)}
+.nebula{position:fixed;inset:0;pointer-events:none;z-index:0;background:radial-gradient(ellipse at 50% 40%,transparent 40%,rgba(14,9,6,.78) 100%)}
+.wrap{position:relative;z-index:2;max-width:1120px;margin:0 auto;padding:0 22px 80px}
+nav{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:22px 0}
+.brand{font-family:var(--head);letter-spacing:.2em;font-weight:800;text-decoration:none;color:var(--ink)}
+.brand span{color:var(--ember)}
+.links a{color:var(--muted);text-decoration:none;margin-left:14px;font-size:13px}
+.links a:hover{color:var(--ember)}
+.langs{display:flex;gap:4px}
+.langs button{background:none;border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:5px 8px;cursor:pointer;font:600 10px/1 var(--mono)}
+.langs button[aria-pressed=true]{color:var(--ember);border-color:var(--ember)}
+.hero{display:grid;grid-template-columns:minmax(0,.9fr) minmax(360px,1.1fr);gap:clamp(18px,4vw,40px);align-items:center;min-height:560px;padding:28px 0 40px}
+.kicker{font:600 11px/1 var(--body);letter-spacing:.2em;text-transform:uppercase;color:var(--ember);margin:0 0 14px}
+h1{font-family:var(--head);font-size:clamp(2.3rem,6vw,4rem);line-height:.96;margin:0 0 16px}
+h1 em{font-style:normal;color:var(--ember)}
+.lead{color:var(--muted);font-size:1.12rem;max-width:38rem;margin:0 0 24px;line-height:1.55}
+.cta{display:flex;flex-wrap:wrap;gap:12px}
+.btn{display:inline-flex;padding:12px 18px;border-radius:999px;text-decoration:none;font-family:var(--head);font-weight:700}
+.btn-primary{background:linear-gradient(135deg,#ffc266,#ff8c42);color:#1a1006}
+.btn-ghost{border:1px solid var(--line);color:var(--ink)}
+.stage{position:relative;height:540px;min-width:0}
+#hearth{position:absolute;inset:0;width:100%;height:100%;display:block}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.card{border:1px solid var(--line);border-radius:16px;padding:18px;background:rgba(20,12,8,.7)}
+.card h3{margin:0 0 8px;font-family:var(--head);font-size:1.05rem}
+.card p{margin:0;color:var(--muted);font-size:.95rem}
+.section{margin-top:56px}
+.section h2{font-family:var(--head);margin:0 0 10px}
+.section .lede{color:var(--muted);max-width:42rem}
+pre{background:#0c0806;border:1px solid var(--line);border-radius:14px;padding:16px;overflow:auto;font:12px/1.5 var(--mono)}
+footer{margin-top:64px;color:var(--muted);font-size:13px}
+@media (max-width:860px){.hero{grid-template-columns:1fr}.stage{height:380px}}
+</style>
+</head>
+<body>
+<div class="nebula"></div>
+<div class="wrap">
+<nav>
+  <a class="brand" href="./">HESTIA <span>Ἑστία</span></a>
+  <div class="links">
+    <a data-i="nav_guide" href="https://github.com/alexar76/hestia#readme">Guide</a>
+    <a data-i="nav_code" href="https://github.com/alexar76/hestia">GitHub</a>
+    <a data-i="nav_hub" href="https://modelmarket.dev">Hub</a>
+  </div>
+  <div class="langs" role="group" aria-label="Language">
+    <button type="button" data-lang="en">EN</button>
+    <button type="button" data-lang="ru">RU</button>
+    <button type="button" data-lang="es">ES</button>
+    <button type="button" data-lang="fr">FR</button>
+    <button type="button" data-lang="zh">ZH</button>
+  </div>
+</nav>
+<section class="hero">
+  <div>
+    <p class="kicker" data-i="kicker">The missing function</p>
+    <h1 data-i="h1">A home for agents that <em>stay on</em>.</h1>
+    <p class="lead" data-i="lead">HESTIA is the hearth. You deploy a capability provider onto the operator’s machines. It gets an isolated process, a stable URL, and — only if you ask — a knock on the Hub. It is not a bulletin board of Factory products.</p>
+    <div class="cta">
+      <a class="btn btn-primary" data-i="cta_run" href="https://github.com/alexar76/hestia#quick-start">Run locally</a>
+      <a class="btn btn-ghost" data-i="cta_why" href="#not-a-board">Not a board</a>
+    </div>
+  </div>
+  <div class="stage"><canvas id="hearth" aria-label="3D hearth with hosted tenant orbs"></canvas></div>
+</section>
+<section class="section" id="not-a-board">
+  <h2 data-i="n_h">What this is — and is not</h2>
+  <p class="lede" data-i="n_p">Factory builds. THEMIS admits. Hub lists. ARGUS consumes. HESTIA is the machine the seller actually runs on.</p>
+  <div class="grid" style="margin-top:18px">
+    <article class="card"><h3 data-i="c1t">Not a job board</h3><p data-i="c1p">Agents do not appear because Factory finished a pipeline. Someone must deploy a signed bundle onto this hearth.</p></article>
+    <article class="card"><h3 data-i="c2t">Hosted on the operator</h3><p data-i="c2p">Tenants run on the Hestia host — the AICOM fleet for the reference hearth, or your own box if you self-host. Not on the builder’s laptop.</p></article>
+    <article class="card"><h3 data-i="c3t">Hub stays the market</h3><p data-i="c3p">A hearth URL is not a catalogue row. Announce is explicit. THEMIS can still refuse before start.</p></article>
+    <article class="card"><h3 data-i="c4t">Isolation first</h3><p data-i="c4p">The Hestia box cannot drive the host. Tenants cannot either: no docker.sock, no privileged, no host net, cap-drop ALL. AST admits handlers — it is not a sandbox.</p></article>
+  </div>
+</section>
+<section class="section">
+  <h2 data-i="q_h">Quick start</h2>
+  <pre>cd hestia
+export HESTIA_DEPLOY_TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')
+uv sync --extra dev --project .
+uv run --project . python -m hestia
+# console: http://127.0.0.1:9480/ui/</pre>
+</section>
+<footer data-i="foot">HESTIA · MIT · Part of the AICOM agent economy · Names stay Latin</footer>
+</div>
+<script type="module">
+import { mountHearth } from "./hearth.js";
+const I = {
+  en:{kicker:"The missing function",h1:"A home for agents that <em>stay on</em>.",lead:"HESTIA is the hearth. You deploy a capability provider onto the operator’s machines. It gets an isolated process, a stable URL, and — only if you ask — a knock on the Hub. It is not a bulletin board of Factory products.",cta_run:"Run locally",cta_why:"Not a board",n_h:"What this is — and is not",n_p:"Factory builds. THEMIS admits. Hub lists. ARGUS consumes. HESTIA is the machine the seller actually runs on.",c1t:"Not a job board",c1p:"Agents do not appear because Factory finished a pipeline. Someone must deploy a signed bundle onto this hearth.",c2t:"Hosted on the operator",c2p:"Tenants run on the Hestia host — the AICOM fleet for the reference hearth, or your own box if you self-host. Not on the builder’s laptop.",c3t:"Hub stays the market",c3p:"A hearth URL is not a catalogue row. Announce is explicit. THEMIS can still refuse before start.",c4t:"Isolation first",c4p:"The Hestia box cannot drive the host. Tenants cannot either: no docker.sock, no privileged, no host net, cap-drop ALL. AST admits handlers — it is not a sandbox.",q_h:"Quick start",foot:"HESTIA · MIT · Part of the AICOM agent economy · Names stay Latin",nav_guide:"Guide",nav_code:"GitHub",nav_hub:"Hub"},
+  ru:{kicker:"Недостающая функция",h1:"Дом для агентов, которые <em>не гаснут</em>.",lead:"HESTIA — очаг. Вы деплоите провайдера способности на машины оператора. Он получает изолированный процесс, стабильный URL и — только если вы попросите — стук в Hub. Это не доска объявлений продуктов Factory.",cta_run:"Запустить локально",cta_why:"Это не доска",n_h:"Что это — и чем не является",n_p:"Factory собирает. THEMIS допускает. Hub размещает. ARGUS потребляет. HESTIA — машина, на которой продавец реально работает.",c1t:"Не доска работ",c1p:"Агенты не появляются сами, потому что Factory закончил пайплайн. Нужен явный деплой подписанного бандла на этот очаг.",c2t:"Хостинг у оператора",c2p:"Тенанты крутятся на хосте Hestia — флот AICOM для эталонного очага или ваш сервер при self-host. Не на ноутбуке автора.",c3t:"Hub остаётся рынком",c3p:"URL очага — не строка каталога. Announce явный. THEMIS может отказать до старта.",c4t:"Сначала изоляция",c4p:"Коробка Hestia не управляет хостом. Тенанты тоже: нет docker.sock, нет privileged, нет host-сети, cap-drop ALL. AST допускает handler — это не песочница.",q_h:"Быстрый старт",foot:"HESTIA · MIT · Экономика агентов AICOM · Имена остаются латиницей",nav_guide:"Гайд",nav_code:"GitHub",nav_hub:"Hub"},
+  es:{kicker:"La función que faltaba",h1:"Una casa para agentes que <em>siguen encendidos</em>.",lead:"HESTIA es el hogar. Despliegas un proveedor de capacidad en las máquinas del operador. Recibe un proceso aislado, una URL estable y —solo si lo pides— un aviso al Hub. No es un tablón de productos de Factory.",cta_run:"Ejecutar en local",cta_why:"No es un tablón",n_h:"Qué es — y qué no es",n_p:"Factory construye. THEMIS admite. Hub lista. ARGUS consume. HESTIA es la máquina en la que el vendedor realmente corre.",c1t:"No es un job board",c1p:"Los agentes no aparecen porque Factory terminó un pipeline. Alguien debe desplegar un paquete firmado en este hogar.",c2t:"Alojado en el operador",c2p:"Los inquilinos corren en el host Hestia — la flota AICOM del hogar de referencia, o tu caja si te autoalojas. No en el portátil del autor.",c3t:"El Hub sigue siendo el mercado",c3p:"Una URL del hogar no es una fila del catálogo. El anuncio es explícito. THEMIS aún puede rechazar antes de arrancar.",c4t:"Aislamiento primero",c4p:"La caja Hestia no conduce el host. Los inquilinos tampoco: sin docker.sock, sin privileged, sin red host, cap-drop ALL. AST admite handlers — no es un sandbox.",q_h:"Inicio rápido",foot:"HESTIA · MIT · Economía de agentes AICOM · Los nombres se quedan en latín",nav_guide:"Guía",nav_code:"GitHub",nav_hub:"Hub"},
+  fr:{kicker:"La fonction manquante",h1:"Une maison pour des agents qui <em>restent allumés</em>.",lead:"HESTIA est l’âtre. Vous déployez un fournisseur de capacité sur les machines de l’opérateur. Il reçoit un processus isolé, une URL stable, et — seulement si vous le demandez — un coup au Hub. Ce n’est pas un tableau des produits Factory.",cta_run:"Lancer en local",cta_why:"Pas un tableau",n_h:"Ce que c’est — et ce que ce n’est pas",n_p:"Factory construit. THEMIS admet. Hub référence. ARGUS consomme. HESTIA est la machine sur laquelle le vendeur tourne vraiment.",c1t:"Pas un job board",c1p:"Les agents n’apparaissent pas parce que Factory a fini un pipeline. Il faut déployer un bundle signé sur cet âtre.",c2t:"Hébergé chez l’opérateur",c2p:"Les locataires tournent sur l’hôte Hestia — la flotte AICOM de l’âtre de référence, ou votre machine en auto-hébergement. Pas sur le portable de l’auteur.",c3t:"Le Hub reste le marché",c3p:"Une URL d’âtre n’est pas une ligne de catalogue. L’annonce est explicite. THEMIS peut encore refuser avant le démarrage.",c4t:"L’isolation d’abord",c4p:"La boîte Hestia ne pilote pas l’hôte. Les locataires non plus : pas de docker.sock, pas de privileged, pas de réseau host, cap-drop ALL. L’AST admet les handlers — ce n’est pas un bac à sable.",q_h:"Démarrage rapide",foot:"HESTIA · MIT · Économie d’agents AICOM · Les noms restent en latin",nav_guide:"Guide",nav_code:"GitHub",nav_hub:"Hub"},
+  zh:{kicker:"缺的那一层",h1:"让智能体<strong>一直在线</strong>的家。",lead:"HESTIA 是炉灶。你把能力提供方部署到运营者的机器上。它得到隔离进程、稳定 URL，以及——仅在你请求时——向 Hub 敲门。它不是 Factory 产品的公告板。",cta_run:"本地运行",cta_why:"不是公告板",n_h:"这是什么，不是什么",n_p:"Factory 构建。THEMIS 准入。Hub 上架。ARGUS 消费。HESTIA 是卖方真正跑起来的机器。",c1t:"不是任务板",c1p:"智能体不会因为 Factory 跑完流水线就出现。必须有人把签名包部署到这座炉灶。",c2t:"托管在运营者处",c2p:"租户跑在 Hestia 主机上——参考炉灶是 AICOM 机队，自托管则是你的机器。不是作者的笔记本。",c3t:"Hub 仍是市场",c3p:"炉灶 URL 不是目录行。宣布是显式的。THEMIS 仍可在启动前拒绝。",c4t:"隔离优先",c4p:"Hestia 盒子不能驱动宿主机。租户也不能：没有 docker.sock、没有 privileged、没有 host 网络、cap-drop ALL。AST 准入 handler——不是沙箱。",q_h:"快速开始",foot:"HESTIA · MIT · AICOM 智能体经济 · 名称保持拉丁文",nav_guide:"指南",nav_code:"GitHub",nav_hub:"Hub"}
+};
+function apply(lang){
+  const pack = I[lang] || I.en;
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-i]").forEach((el) => {
+    const key = el.getAttribute("data-i");
+    if (pack[key]) el.innerHTML = pack[key];
+  });
+  document.querySelectorAll(".langs button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.lang === lang ? "true" : "false"));
+  const url = new URL(location.href); url.searchParams.set("lang", lang); history.replaceState({}, "", url);
+}
+const start = new URLSearchParams(location.search).get("lang") || (navigator.language || "en").slice(0,2);
+apply(["en","ru","es","fr","zh"].includes(start) ? start : "en");
+document.querySelectorAll(".langs button").forEach((b) => b.addEventListener("click", () => apply(b.dataset.lang)));
+mountHearth(document.getElementById("hearth"));
+</script>
+</body>
+</html>

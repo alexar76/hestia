@@ -1,0 +1,15 @@
+.venv
+.git
+.github
+.pytest_cache
+__pycache__
+*.pyc
+coverage.xml
+dist
+.env
+data
+.coverage
+tests
+# Landing/docs stay out of the runtime image. README.md + LICENSE stay in —
+# Dockerfile COPY and hatchling need them. Do not ignore *.md.
+docs

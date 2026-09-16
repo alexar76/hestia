@@ -1,0 +1,34 @@
+# One unprivileged satellite, same shape as basanos/themis.
+# Default `docker compose up` is stub-only: tenants are loopback subprocesses
+# *inside* this box. The box cannot drive the host — no docker CLI, no sock,
+# no privileged, no host pid/ipc/uts/net, no bind of /.
+# Nested privileged DinD is not shipped. Docker runtime is a *host process*
+# (`python -m hestia` on a machine that already has Docker), not this container.
+
+services:
+  hestia:
+    build: .
+    ports:
+      - "127.0.0.1:9480:9480"
+    environment:
+      HESTIA_HOST: "0.0.0.0"
+      HESTIA_PUBLIC_BASE: "${HESTIA_PUBLIC_BASE:-http://127.0.0.1:9480}"
+      HESTIA_DATA_DIR: /data
+      HESTIA_DEPLOY_TOKEN: "${HESTIA_DEPLOY_TOKEN:?set HESTIA_DEPLOY_TOKEN}"
+      HESTIA_RUNTIME: stub
+      HESTIA_ALLOW_HOST_DOCKER: "0"
+    user: "65532:65532"
+    privileged: false
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - hestia-data:/data
+    restart: unless-stopped
+
+volumes:
+  hestia-data:

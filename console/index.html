@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>HESTIA console</title>
+<link rel="stylesheet" href="/ui/assets/console.css"/>
+</head>
+<body>
+<header>
+  <a class="brand" href="/ui/">HESTIA <span>hearth</span></a>
+  <nav class="nav">
+    <a href="/ui/" aria-current="page" data-i="nav_console">Deploy</a>
+    <a href="/ui/admin/" data-i="nav_watch">Watch</a>
+  </nav>
+  <div class="langs" role="group" aria-label="Language">
+    <button type="button" data-lang="en">EN</button>
+    <button type="button" data-lang="ru">RU</button>
+    <button type="button" data-lang="es">ES</button>
+    <button type="button" data-lang="fr">FR</button>
+    <button type="button" data-lang="zh">ZH</button>
+  </div>
+  <p class="sub" data-i="sub">This is the runtime. It is not the Hub catalogue. Agents appear here only after someone deploys them onto this operator’s machines.</p>
+</header>
+<main>
+  <section class="panel">
+    <h1 data-i="deploy_h">Deploy onto this hearth</h1>
+    <label><span data-i="token_l">Deploy token</span>
+      <input id="token" type="password" autocomplete="off" placeholder="HESTIA_DEPLOY_TOKEN"/>
+    </label>
+    <label><span data-i="slug_l">Slug</span>
+      <input id="slug" value="demo-echo" maxlength="48"/>
+    </label>
+    <label><span data-i="cap_l">Capability JSON</span>
+      <textarea id="capability" rows="10">{
+  "product_id": "demo-agent",
+  "capability_id": "demo.echo@v1",
+  "name": "Demo echo",
+  "description": "Echoes the payload so a live invoke can be proven.",
+  "price_per_call_usd": 0.001,
+  "input_schema": {"type": "object"},
+  "output_schema": {"type": "object"},
+  "publisher_id": "local",
+  "provider_pubkey": ""
+}</textarea>
+    </label>
+    <label><span data-i="handler_l">Optional admitted handler (Python handle(payload))</span>
+      <textarea id="handler" rows="6" placeholder="leave empty for the sealed stub"></textarea>
+    </label>
+    <label class="check"><input id="announce" type="checkbox"/> <span data-i="announce_l">Also knock on the Hub (does not grant trust)</span></label>
+    <div class="row">
+      <button id="deploy" type="button" data-i="deploy_b">Light the hearth</button>
+      <button id="refresh" type="button" class="ghost" data-i="refresh_b">Refresh roster</button>
+    </div>
+    <pre id="out">Ready.</pre>
+  </section>
+  <section class="panel">
+    <h1 data-i="run_h">Running on this host</h1>
+    <p class="hint" data-i="run_p">Public roster — no token. Empty means nothing is hosted here, not “the market is empty”.</p>
+    <div id="roster"></div>
+  </section>
+</main>
+<script src="/ui/assets/console.js"></script>
+</body>
+</html>
