@@ -1,0 +1,68 @@
+# One unprivileged satellite, same shape as basanos/themis.
+# Default `docker compose up` is stub-only: tenants are loopback subprocesses
+# *inside* this box. The box cannot drive the host — no docker CLI, no sock,
+# no privileged, no host pid/ipc/uts/net, no bind of /.
+# Nested privileged DinD is not shipped. Docker runtime is a *host process*
+# (`python -m hestia` on a machine that already has Docker), not this container.
+# Ledger default is SQLite under /data. Production overlay:
+# docker compose -f docker-compose.yml -f docker-compose.postgres.yml up
+
+services:
+  hestia:
+    build: .
+    ports:
+      - "127.0.0.1:9480:9480"
+    environment:
+      HESTIA_HOST: "0.0.0.0"
+      HESTIA_PUBLIC_BASE: "${HESTIA_PUBLIC_BASE:-http://127.0.0.1:9480}"
+      HESTIA_DATA_DIR: /data
+      HESTIA_DEPLOY_TOKEN: "${HESTIA_DEPLOY_TOKEN:?set HESTIA_DEPLOY_TOKEN}"
+      HESTIA_RUNTIME: stub
+      HESTIA_DATABASE_URL: "${HESTIA_DATABASE_URL:-}"
+      HESTIA_ALLOW_HOST_DOCKER: "0"
+      HESTIA_MAX_TENANTS: "${HESTIA_MAX_TENANTS:-8}"
+      # Wall-clock budget for one invoke, enforced inside each agent process.
+      HESTIA_TENANT_CALL_TIMEOUT_S: "${HESTIA_TENANT_CALL_TIMEOUT_S:-10}"
+      # Address-space ceiling per agent process (MiB). 0 disables it.
+      HESTIA_STUB_MEMORY_CAP_MB: "${HESTIA_STUB_MEMORY_CAP_MB:-512}"
+      # Off by default. On, the hearth verifies a USDC transfer to each tenant's
+      # own payout address before serving a priced call — it holds no funds and
+      # takes no cut, so there is nothing here to custody.
+      HESTIA_PAYMENTS_ENABLED: "${HESTIA_PAYMENTS_ENABLED:-0}"
+      HESTIA_PAYMENT_CHAIN: "${HESTIA_PAYMENT_CHAIN:-base}"
+      HESTIA_PAYMENT_TOKEN: "${HESTIA_PAYMENT_TOKEN:-USDC}"
+      HESTIA_PAYMENT_TOKEN_CONTRACT: "${HESTIA_PAYMENT_TOKEN_CONTRACT:-0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913}"
+      HESTIA_PAYMENT_RPC_URL: "${HESTIA_PAYMENT_RPC_URL:-}"
+      HESTIA_PAYMENT_MIN_CONFIRMATIONS: "${HESTIA_PAYMENT_MIN_CONFIRMATIONS:-1}"
+      # A bare transfer names no call, so a transfer made for something else
+      # could settle one. On (the default), a payment must carry the EIP-3009
+      # authorization for the nonce this hearth minted in its 402. Off is only
+      # safe when the payout address is dedicated to this hearth.
+      HESTIA_PAYMENT_REQUIRE_BINDING: "${HESTIA_PAYMENT_REQUIRE_BINDING:-1}"
+      HESTIA_PAYMENT_INVOICE_TTL_S: "${HESTIA_PAYMENT_INVOICE_TTL_S:-900}"
+      HESTIA_PAYMENT_MAX_AGE_S: "${HESTIA_PAYMENT_MAX_AGE_S:-3600}"
+      # The EIP-712 domain buyers sign against, published in the 402 so their
+      # tooling never guesses it. Defaults are USDC on Base.
+      HESTIA_PAYMENT_CHAIN_ID: "${HESTIA_PAYMENT_CHAIN_ID:-8453}"
+      HESTIA_PAYMENT_TOKEN_EIP712_NAME: "${HESTIA_PAYMENT_TOKEN_EIP712_NAME:-USD Coin}"
+      HESTIA_PAYMENT_TOKEN_EIP712_VERSION: "${HESTIA_PAYMENT_TOKEN_EIP712_VERSION:-2}"
+    user: "65532:65532"
+    privileged: false
+    read_only: true
+    # The box that runs agent processes had no ceiling of its own: a runaway
+    # handler could take the whole host, which also carries the Hub and Postgres.
+    # Per-agent rlimits bound one agent; these bound all of them together.
+    mem_limit: "${HESTIA_MEM_LIMIT:-1g}"
+    pids_limit: ${HESTIA_PIDS_LIMIT:-256}
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - hestia-data:/data
+    restart: unless-stopped
+
+volumes:
+  hestia-data:

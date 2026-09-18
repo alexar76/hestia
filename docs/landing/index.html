@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>HESTIA — hosting control plane for AIMarket providers</title>
+<meta name="description" content="HESTIA is a hosting control plane for AIMarket capability providers. POST a deploy request and it starts the agent as an isolated process behind a stable URL, with Ed25519-signed responses and an announce to the Hub only on request."/>
+<link rel="canonical" href="https://hestia.modelmarket.dev/"/>
+<link rel="alternate" hreflang="en" href="https://hestia.modelmarket.dev/?lang=en"/>
+<link rel="alternate" hreflang="ru" href="https://hestia.modelmarket.dev/?lang=ru"/>
+<link rel="alternate" hreflang="es" href="https://hestia.modelmarket.dev/?lang=es"/>
+<link rel="alternate" hreflang="fr" href="https://hestia.modelmarket.dev/?lang=fr"/>
+<link rel="alternate" hreflang="zh" href="https://hestia.modelmarket.dev/?lang=zh"/>
+<link rel="alternate" hreflang="x-default" href="https://hestia.modelmarket.dev/"/>
+<meta property="og:type" content="website"/>
+<meta property="og:title" content="HESTIA — hosting control plane"/>
+<meta property="og:description" content="Deploy a capability agent and get an isolated process, a stable URL, a signed invoke edge, and an explicit announce to the Hub."/>
+<meta property="og:url" content="https://hestia.modelmarket.dev/"/>
+<meta name="theme-color" content="#140c08"/>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23140c08'/%3E%3Cpath d='M8 22c2-6 5-10 8-12 3 2 6 6 8 12' fill='none' stroke='%23ff9a3c' stroke-width='2'/%3E%3Ccircle cx='16' cy='20' r='2.2' fill='%2366f7c5'/%3E%3C/svg%3E"/>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin/>
+<link href="fonts/fonts.css" rel="stylesheet"/>
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/"
+}}
+</script>
+<style>
+:root{
+  --void:#140c08; --void-2:#0c0806; --panel:rgba(20,12,8,.72);
+  --ink:#f4ebe0; --ink-2:#e2d2c0; --muted:#b89f86; --faint:#7a6452;
+  --ember:#ff9a3c; --ember-hi:#ffc266; --ember-lo:#c45a18;
+  --ok:#66f7c5; --ok-lo:#1d6b57; --hub:#8ecbff;
+  --line:rgba(255,154,60,.22); --line-2:rgba(255,255,255,.06); --line-hot:rgba(102,247,197,.4);
+  --head:"Syne",system-ui,-apple-system,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,monospace;
+  --maxw:1180px; --r-s:10px; --r-m:16px; --r-l:22px;
+  --s4:24px; --s5:36px; --s6:56px;
+  --ease:cubic-bezier(.22,.68,.16,1);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;overflow-x:clip}
+body{
+  margin:0;background:var(--void);color:var(--ink);
+  font-family:var(--body);font-size:16px;line-height:1.6;letter-spacing:.002em;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+}
+body.menu-open{overflow:hidden}
+::selection{background:rgba(255,154,60,.28);color:#fff}
+:focus-visible{outline:2px solid var(--ok);outline-offset:3px;border-radius:4px}
+a{color:inherit}
+h1,h2,h3{text-wrap:balance}
+p{text-wrap:pretty}
+
+#stars{position:fixed;inset:0;z-index:0;display:block}
+.nebula{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(58vw 46vw at 82% 4%,rgba(255,154,60,.16),transparent 58%),
+    radial-gradient(46vw 38vw at 8% 78%,rgba(102,247,197,.07),transparent 55%),
+    radial-gradient(70vw 44vw at 50% 110%,rgba(255,80,20,.06),transparent 52%),
+    linear-gradient(165deg,#1c1008,#0e0906)}
+.grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.18;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E")}
+.vignette{position:fixed;inset:0;z-index:1;pointer-events:none;box-shadow:inset 0 0 240px 60px rgba(8,5,3,.78)}
+.wrap{position:relative;z-index:2;max-width:var(--maxw);margin:0 auto;
+  padding-left:max(18px,env(safe-area-inset-left));padding-right:max(18px,env(safe-area-inset-right))}
+
+nav{position:sticky;top:0;z-index:60;backdrop-filter:blur(16px) saturate(130%);
+  background:linear-gradient(180deg,rgba(20,12,8,.94),rgba(20,12,8,.42));border-bottom:1px solid var(--line)}
+nav .row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:62px;padding-top:8px;padding-bottom:8px;min-width:0}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--head);font-weight:800;
+  letter-spacing:.14em;font-size:15px;text-decoration:none;color:var(--ink);min-width:0;flex:0 1 auto}
+.brand .pip{width:12px;height:12px;border-radius:50%;flex:none;
+  background:radial-gradient(circle at 34% 30%,#fff6e8,var(--ember) 46%,#6a2c0c);
+  box-shadow:0 0 18px rgba(255,154,60,.55);animation:pip 3s var(--ease) infinite}
+@keyframes pip{0%,100%{transform:scale(1);opacity:.92}50%{transform:scale(1.14);opacity:1}}
+.nav-links{display:flex;gap:2px;align-items:center}
+.nav-links a{color:var(--muted);text-decoration:none;font:500 12px/1 var(--mono);letter-spacing:.07em;
+  padding:9px 11px;border-radius:8px;transition:color .2s var(--ease),background .2s var(--ease);white-space:nowrap}
+.nav-links a:hover{color:var(--ember);background:rgba(255,154,60,.06)}
+.langs{display:flex;gap:2px;padding:3px;border:1px solid var(--line);border-radius:9px;background:rgba(20,12,8,.55);flex:none}
+.langs button{background:none;border:0;cursor:pointer;color:var(--faint);
+  font:600 10px/1 var(--mono);letter-spacing:.08em;padding:6px 7px;border-radius:6px;transition:.2s var(--ease)}
+.langs button:hover{color:var(--ember)}
+.langs button[aria-pressed=true]{background:rgba(255,154,60,.16);color:var(--ember-hi)}
+.progress{position:absolute;left:0;bottom:-1px;height:2px;width:0;
+  background:linear-gradient(90deg,var(--ember),var(--ok));box-shadow:0 0 12px rgba(255,154,60,.45)}
+.burger{display:none;background:none;border:1px solid var(--line);color:var(--ink-2);border-radius:9px;
+  width:40px;height:36px;cursor:pointer;font-size:15px;line-height:1}
+.drawer{display:none}
+.langs-drawer{display:none}
+
+.hero{padding:clamp(20px,4vw,44px) 0 12px}
+.hero-grid{display:grid;grid-template-columns:minmax(0,.9fr) minmax(360px,1.1fr);gap:clamp(18px,3.6vw,40px);align-items:center}
+.hero-grid > *{min-width:0}
+.kicker{display:inline-flex;align-items:center;gap:10px;font:600 10.5px/1 var(--mono);
+  letter-spacing:.2em;text-transform:uppercase;color:var(--ember);margin:0 0 18px}
+.kicker:before{content:"";width:30px;height:1px;background:var(--ember);box-shadow:0 0 12px var(--ember)}
+h1{margin:0;font-family:var(--head);font-weight:800;font-size:clamp(2.3rem,6.2vw,4rem);
+  line-height:.96;letter-spacing:-.025em}
+h1 em{font-style:normal;color:var(--ember);
+  background:linear-gradient(180deg,var(--ember-hi),var(--ember-lo));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.lead{margin:18px 0 0;max-width:40rem;color:var(--ink-2);font-size:clamp(15px,1.5vw,17.5px);line-height:1.55}
+.cta{display:flex;flex-wrap:wrap;gap:11px;margin-top:26px}
+.btn{display:inline-flex;align-items:center;gap:8px;justify-content:center;padding:13px 21px;border-radius:999px;
+  font-family:var(--head);font-weight:700;font-size:12.5px;letter-spacing:.05em;text-decoration:none;
+  transition:transform .22s var(--ease),box-shadow .22s var(--ease),border-color .22s var(--ease);border:1px solid transparent}
+.btn:hover{transform:translateY(-2px)}
+.btn-primary{background:linear-gradient(135deg,var(--ember-hi),#ff8c42);color:#1a1006;box-shadow:0 6px 26px rgba(255,154,60,.24)}
+.btn-primary:hover{box-shadow:0 10px 38px rgba(255,154,60,.4)}
+.btn-ghost{border-color:var(--line);color:var(--ink);background:rgba(20,12,8,.5);backdrop-filter:blur(8px)}
+.btn-ghost:hover{border-color:var(--line-hot);box-shadow:0 0 24px rgba(102,247,197,.14)}
+.cmd{margin-top:22px;display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;
+  border:1px solid rgba(255,154,60,.28);background:linear-gradient(180deg,rgba(16,10,7,.88),rgba(12,8,6,.7))}
+.cmd code{flex:1;min-width:0;font-family:var(--mono);font-size:.86rem;color:var(--ok);overflow-x:auto;white-space:nowrap;scrollbar-width:none}
+.cmd code::-webkit-scrollbar{display:none}
+.cmd .sig{color:var(--faint);user-select:none}
+.copy{flex:none;background:rgba(255,154,60,.1);border:1px solid var(--line);color:var(--ember);
+  font:600 10px/1 var(--mono);letter-spacing:.1em;padding:7px 10px;border-radius:7px;cursor:pointer;transition:.2s var(--ease)}
+.copy:hover{background:rgba(255,154,60,.2);color:var(--ember-hi)}
+.copy.done{color:var(--ok);border-color:rgba(102,247,197,.4)}
+
+.stage{position:relative;height:min(600px,74vw);min-height:400px;border-radius:var(--r-l);isolation:isolate;
+  border:1px solid rgba(255,154,60,.2);background:radial-gradient(120% 90% at 50% 8%,rgba(36,20,12,.78),rgba(8,5,3,.94));
+  overflow:hidden;cursor:grab;touch-action:pan-y;
+  box-shadow:0 40px 90px -30px rgba(0,0,0,.8),inset 0 1px 0 rgba(255,255,255,.05),inset 0 0 70px rgba(255,154,60,.04)}
+.stage:active{cursor:grabbing}
+#hearth{position:absolute;inset:0;width:100%;height:100%;display:block;outline:none}
+.stage .corner{position:absolute;width:16px;height:16px;border:1px solid rgba(255,154,60,.42);pointer-events:none;opacity:.7}
+.stage .corner.tl{top:12px;left:12px;border-right:0;border-bottom:0}
+.stage .corner.tr{top:12px;right:12px;border-left:0;border-bottom:0}
+.stage .corner.bl{bottom:12px;left:12px;border-right:0;border-top:0}
+.stage .corner.br{bottom:12px;right:12px;border-left:0;border-top:0}
+.tag3d{position:absolute;top:0;left:0;z-index:3;pointer-events:none;display:block;
+  padding:6px 9px;border:1px solid rgba(255,154,60,.28);border-radius:7px;
+  background:rgba(14,8,6,.62);backdrop-filter:blur(8px);transform:translate(-50%,-120%);
+  font:600 9px/1.25 var(--mono);letter-spacing:.1em;color:var(--muted);white-space:nowrap;opacity:0;transition:opacity .25s var(--ease)}
+.tag3d b{display:block;color:var(--ember-hi);font-size:10.5px;margin-bottom:2px}
+.tag3d.iso b{color:var(--ok)}
+.tag3d.hub b{color:var(--hub)}
+.hint{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:3;
+  font:500 9px/1 var(--mono);letter-spacing:.14em;color:var(--faint);pointer-events:none;white-space:nowrap}
+.hud{position:absolute;left:12px;right:12px;top:12px;z-index:4;display:grid;
+  grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
+  padding:9px 11px;border-radius:12px;border:1px solid rgba(255,154,60,.2);
+  background:rgba(12,8,6,.58);backdrop-filter:blur(10px);pointer-events:none}
+.mode{display:inline-flex;align-items:center;gap:7px;font:700 10px/1 var(--mono);letter-spacing:.12em}
+.mode .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+.mode.SIM .dot{background:var(--ember);box-shadow:0 0 10px var(--ember)}
+.mode.LIVE .dot{background:var(--ok);box-shadow:0 0 10px var(--ok);animation:beat 1.8s infinite}
+.mode.UNREACHABLE .dot{background:#ff6b4a}
+.hud .mid{min-width:0}
+.hud .phase{font:600 10px/1.3 var(--mono);letter-spacing:.08em;color:var(--ink)}
+.hud .msg{margin-top:3px;font:500 10px/1.35 var(--mono);color:var(--muted)}
+.hud .axis{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.hud .axis span{font:600 8.5px/1 var(--mono);letter-spacing:.1em;padding:4px 6px;border-radius:5px;
+  border:1px solid var(--line);color:var(--muted)}
+.hud .axis span.on{color:var(--ok);border-color:rgba(102,247,197,.4)}
+@keyframes beat{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+.fallback{display:none;position:absolute;inset:0;place-items:center;text-align:center;padding:28px;
+  color:var(--muted);background:rgba(12,8,6,.88);z-index:5}
+.fallback.on{display:grid}
+.fallback p{max-width:28rem;margin:12px auto 0}
+
+.metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:28px 0 8px}
+.metric{border:1px solid var(--line);border-radius:14px;padding:14px 14px 12px;background:var(--panel)}
+.metric .v{font-family:var(--head);font-size:1.35rem;line-height:1;color:var(--ember)}
+.metric .v.word{font-size:1.05rem;letter-spacing:.04em}
+.metric .k{margin-top:7px;font:600 10px/1.2 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+
+.section{padding:var(--s6) 0;border-top:1px solid var(--line)}
+.section h2{font-family:var(--head);font-weight:800;font-size:clamp(1.6rem,3.4vw,2.2rem);margin:0 0 10px;letter-spacing:-.02em}
+.section .lede{margin:0 0 28px;color:var(--muted);max-width:44rem}
+.eyebrow{font:600 10.5px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ok);margin:0 0 12px}
+
+.axes{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px}
+.axis-card{border:1px solid var(--line);border-radius:16px;padding:16px 14px;background:var(--panel);
+  transition:transform .22s var(--ease),border-color .22s var(--ease),box-shadow .22s var(--ease)}
+.axis-card:hover{transform:translateY(-2px);border-color:var(--line-hot);box-shadow:0 12px 32px -18px rgba(102,247,197,.35)}
+.axis-card .n{font:800 13px/1 var(--head);color:var(--ember);letter-spacing:.08em;margin-bottom:8px}
+.axis-card.fifth .n{color:var(--ok)}
+.axis-card h3{margin:0 0 6px;font-family:var(--head);font-size:1rem}
+.axis-card p{margin:0;color:var(--muted);font-size:.9rem}
+
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.card{border:1px solid var(--line);border-radius:16px;padding:18px;background:var(--panel);
+  transition:transform .22s var(--ease),border-color .22s var(--ease)}
+.card:hover{transform:translateY(-2px);border-color:rgba(255,154,60,.4)}
+.card h3{margin:0 0 8px;font-family:var(--head);font-size:1.05rem}
+.card p{margin:0;color:var(--muted);font-size:.95rem}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.tag{font:600 9px/1 var(--mono);letter-spacing:.08em;padding:5px 8px;border-radius:999px;
+  border:1px solid var(--line);color:var(--muted)}
+.tag.ok{color:var(--ok);border-color:rgba(102,247,197,.35)}
+
+.rail{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.rail-step{position:relative;border:1px solid var(--line);border-radius:14px;padding:14px 12px 14px 16px;background:var(--panel)}
+.rail-step i{display:block;width:7px;height:7px;border-radius:50%;background:var(--ember);margin-bottom:10px;box-shadow:0 0 10px var(--ember)}
+.rail-step.hearth i{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+.rail-step strong{display:block;font-family:var(--head);font-size:.92rem;margin-bottom:4px}
+.rail-step span{color:var(--muted);font-size:.82rem}
+
+pre{background:#0c0806;border:1px solid var(--line);border-radius:14px;padding:16px;overflow:auto;font:12px/1.5 var(--mono);color:var(--ink-2)}
+footer{border-top:1px solid var(--line);padding:var(--s5) 0 var(--s6);position:relative;z-index:2}
+.fgrid{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(2,minmax(0,1fr));gap:var(--s4)}
+.fgrid h5{margin:0 0 12px;font:600 9.5px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--faint)}
+.fgrid a{display:block;color:var(--muted);text-decoration:none;font-size:13px;padding:4px 0;transition:color .2s var(--ease)}
+.fgrid a:hover{color:var(--ember)}
+.fgrid p{margin:0;color:var(--faint);font-size:13px;max-width:36ch}
+.fbrand{display:flex;align-items:center;gap:10px;font-family:var(--head);font-weight:800;letter-spacing:.2em;
+  font-size:14px;margin-bottom:12px}
+.fbot{margin-top:var(--s5);padding-top:18px;border-top:1px solid var(--line-2);
+  display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;color:var(--faint);font:500 11px var(--mono)}
+.fbot a{color:var(--ok);text-decoration:none}
+
+.rv{opacity:0;transform:translateY(18px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
+.rv.in{opacity:1;transform:none}
+
+@media (max-width:1000px){
+  .hero-grid{grid-template-columns:1fr}
+  .stage{order:-1;height:min(420px,88vw);margin-bottom:6px}
+  .axes,.metrics,.rail{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .fgrid{grid-template-columns:1fr 1fr}
+}
+@media (max-width:760px){
+  .nav-links,.langs-bar{display:none}
+  .burger{display:block;flex:none}
+  .brand{letter-spacing:.1em;font-size:14px;gap:8px}
+  .drawer{display:none;position:fixed;inset:0;top:62px;z-index:55;overflow:auto;
+    padding:10px max(20px,env(safe-area-inset-right)) max(28px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left));
+    background:rgba(12,8,6,.98);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    border-top:1px solid var(--line)}
+  .drawer.open{display:block}
+  .drawer a{display:block;padding:14px 2px;color:var(--ink-2);text-decoration:none;
+    font:500 14px var(--mono);letter-spacing:.06em;border-bottom:1px solid var(--line-2)}
+  .langs-drawer{display:flex;margin-top:18px;width:max-content}
+  .tag3d,.hint{display:none}
+  .hud{grid-template-columns:auto 1fr;gap:6px 10px;padding:7px 9px}
+  .hud .axis{grid-column:1/-1;justify-content:flex-start}
+  .hud .msg{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .axes,.metrics,.rail{grid-template-columns:1fr 1fr}
+  .fgrid{grid-template-columns:1fr}
+  .stage{height:min(68svh,400px);min-height:300px}
+  h1{font-size:clamp(2rem,11vw,2.8rem)}
+}
+@media (max-width:400px){
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .brand .pip,.mode.LIVE .dot{animation:none}
+  .rv{opacity:1;transform:none;transition:none}
+  .hint{display:none}
+  .btn:hover,.card:hover,.axis-card:hover{transform:none}
+}
+</style>
+</head>
+<body>
+<canvas id="stars" aria-hidden="true"></canvas>
+<div class="nebula" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
+<div class="vignette" aria-hidden="true"></div>
+
+<nav>
+  <div class="wrap row">
+    <a class="brand" href="#top"><span class="pip" aria-hidden="true"></span>HESTIA</a>
+    <div class="nav-links" id="navlinks">
+      <a href="#how" data-i="nav_how">How it works</a>
+      <a href="#scope" data-i="nav_scope">What it is not</a>
+      <a href="#layers" data-i="nav_layers">Where it sits</a>
+      <a href="#start" data-i="nav_start">Quick start</a>
+      <a href="https://github.com/alexar76/hestia#readme" data-i="nav_guide">Guide</a>
+      <a href="https://github.com/alexar76/hestia" data-i="nav_code">GitHub</a>
+      <a href="https://modelmarket.dev" data-i="nav_hub">Hub</a>
+    </div>
+    <div class="langs langs-bar" role="group" aria-label="Language">
+      <button type="button" data-lang="en">EN</button>
+      <button type="button" data-lang="ru">RU</button>
+      <button type="button" data-lang="es">ES</button>
+      <button type="button" data-lang="fr">FR</button>
+      <button type="button" data-lang="zh">ZH</button>
+    </div>
+    <button class="burger" id="burger" aria-label="Open menu" aria-expanded="false">☰</button>
+  </div>
+  <div class="progress" id="progress"></div>
+</nav>
+<div class="drawer" id="drawer">
+  <a href="#how" data-i="nav_how">How it works</a>
+  <a href="#scope" data-i="nav_scope">What it is not</a>
+  <a href="#layers" data-i="nav_layers">Where it sits</a>
+  <a href="#start" data-i="nav_start">Quick start</a>
+  <a href="https://github.com/alexar76/hestia#readme" data-i="nav_guide">Guide</a>
+  <a href="https://github.com/alexar76/hestia" data-i="nav_code">GitHub</a>
+  <a href="https://modelmarket.dev" data-i="nav_hub">Hub</a>
+  <div class="langs langs-drawer" role="group" aria-label="Language">
+    <button type="button" data-lang="en">EN</button>
+    <button type="button" data-lang="ru">RU</button>
+    <button type="button" data-lang="es">ES</button>
+    <button type="button" data-lang="fr">FR</button>
+    <button type="button" data-lang="zh">ZH</button>
+  </div>
+</div>
+
+<main id="top">
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="kicker" data-i="kicker">Hosting control plane</p>
+      <h1 data-i="h1">Deploy a capability agent, get an <em>isolated process</em>.</h1>
+      <p class="lead" data-i="lead">HESTIA runs AIMarket capability providers on the operator’s machines. You POST a deploy request; it starts the agent as an isolated process, puts it behind a stable URL with a signed invoke edge, and announces it to the Hub only when you ask.</p>
+      <div class="cta">
+        <a class="btn btn-primary" data-i="cta_run" href="#start">Quick start</a>
+        <a class="btn btn-ghost" data-i="cta_why" href="#scope">What it is not</a>
+      </div>
+      <div class="cmd">
+        <span class="sig">$</span>
+        <code id="cmdtext">uv run --project . python -m hestia</code>
+        <button class="copy" id="copybtn" type="button" data-i="cmd_copy">COPY</button>
+      </div>
+    </div>
+    <div class="stage" id="stage">
+      <canvas id="hearth" aria-label="Diagram: a deploy request enters the control plane, an agent process starts inside the isolation boundary, a signed response leaves through the edge"></canvas>
+      <span class="corner tl" aria-hidden="true"></span><span class="corner tr" aria-hidden="true"></span>
+      <span class="corner bl" aria-hidden="true"></span><span class="corner br" aria-hidden="true"></span>
+      <div class="tag3d" id="tag-inside"><b data-i="tag_in_t">AGENTS</b><span data-i="tag_in_p">one isolated process each</span></div>
+      <div class="tag3d iso" id="tag-membrane"><b data-i="tag_iso_t">ISOLATION</b><span data-i="tag_iso_p">the edge is the only way in</span></div>
+      <div class="tag3d hub" id="tag-hub"><b data-i="tag_hub_t">HUB</b><span data-i="tag_hub_p">reached only by announce</span></div>
+      <div class="hint" data-i="stage_hint">DRAG TO ORBIT · SCROLL TO ZOOM</div>
+      <div class="hud" aria-live="polite">
+        <div class="mode SIM" id="hud-mode"><span class="dot" aria-hidden="true"></span><span id="hud-mode-l">SIM</span></div>
+        <div class="mid">
+          <div class="phase" id="hud-phase">IDLE</div>
+          <div class="msg" id="hud-msg"></div>
+        </div>
+        <div class="axis" aria-hidden="true">
+          <span>AST</span><span>cap-drop</span><span class="on">Ed25519</span>
+        </div>
+      </div>
+      <div class="fallback" id="fallback" aria-hidden="true">
+        <div>
+          <p data-i="stage_fallback">WebGL is unavailable here. The diagram shows a deploy request entering the control plane, an agent process starting inside the isolation boundary, and a signed response leaving through the edge.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="metrics rv">
+      <div class="metric"><div class="v">206</div><div class="k" data-i="m_tests">Tests</div></div>
+      <div class="metric"><div class="v">91%</div><div class="k" data-i="m_cov">Branch coverage</div></div>
+      <div class="metric"><div class="v word">Ed25519</div><div class="k" data-i="m_sig">Response signature</div></div>
+      <div class="metric"><div class="v">5</div><div class="k" data-i="m_lang">Doc languages</div></div>
+      <div class="metric"><div class="v word">cap-drop</div><div class="k" data-i="m_iso">Container defaults</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="section wrap" id="how">
+  <p class="eyebrow rv" data-i="hw_eye">Request → admission → process → edge → receipt</p>
+  <h2 class="rv" data-i="hw_h">How a deploy works</h2>
+  <p class="lede rv" data-i="hw_p">Six steps from an HTTP request to a signed response. None of them fire on their own: nothing starts because a build went green.</p>
+  <div class="axes rv">
+    <article class="axis-card"><div class="n">01</div><h3 data-i="s1t">Deploy request</h3><p data-i="s1p">POST /v1/tenants with a bearer token. Body: slug, capability spec, source — either an inline handler or a pinned image digest — and the owner public key. An empty HESTIA_DEPLOY_TOKEN refuses every write, including one that supplies a token.</p></article>
+    <article class="axis-card"><div class="n">02</div><h3 data-i="s2t">Admission</h3><p data-i="s2p">Inline handler source is screened by AST before it runs: no os, subprocess, eval, open, getattr, no dunder names, no str.format attribute walks. A pinned image must match an allow-listed sha256 digest. THEMIS can refuse the capability here.</p></article>
+    <article class="axis-card"><div class="n">03</div><h3 data-i="s3t">Start</h3><p data-i="s3p">Stub runtime: a subprocess in its own 0700 directory with operator secrets stripped from its environment. Docker runtime: cap-drop ALL, read-only rootfs, no-new-privileges, a pids limit, an internal network and a digest-pinned image.</p></article>
+    <article class="axis-card"><div class="n">04</div><h3 data-i="s4t">Invoke edge</h3><p data-i="s4p">The agent listens at /t/{slug} for invoke and health. The same call is also on the hearth at /ai-market/v2/invoke, routed by capability_id — that door is the AIMarket SKU bus too (deploy, status, list, stop; deploy and stop need the operator token). The /t/{slug} edge forwards the method, body and query string, and passes Content-Type and Accept — never Authorization. Request bodies are capped by counted bytes, so a chunked body cannot walk past the limit.</p></article>
+    <article class="axis-card fifth"><div class="n">05</div><h3 data-i="s5t">Receipt</h3><p data-i="s5p">Every response carries an Ed25519 signature over the result, the capability id and the SHA-256 of the input. The provider public key is published at /.well-known/ai-market.json, so a caller can verify without asking the host.</p></article>
+    <article class="axis-card fifth"><div class="n">06</div><h3 data-i="s6t">Announce — optional</h3><p data-i="s6p">The Hub catalogue changes only after an explicit announce. Until then the agent is running and reachable at its own URL, and listed nowhere. /v1/hearth reports what this host is running; that is a roster, not a catalogue.</p></article>
+  </div>
+</section>
+
+<section class="section wrap" id="scope">
+  <h2 class="rv" data-i="n_h">What HESTIA is not</h2>
+  <p class="lede rv" data-i="n_p">Factory writes the source. THEMIS admits at publish time. Hub is the catalogue. ARGUS is the client. HESTIA is only the host the agent runs on — and it is easier to use once you know what it refuses to be.</p>
+  <div class="grid rv">
+    <article class="card">
+      <h3 data-i="c1t">Not a catalogue</h3>
+      <p data-i="c1p">A hestia URL is not a Hub listing. /v1/hearth returns the agents this one host is running. Nothing about it is a marketplace index.</p>
+      <div class="tags"><span class="tag" data-i="c1g">roster, not index</span></div>
+    </article>
+    <article class="card">
+      <h3 data-i="c2t">Not a build system</h3>
+      <p data-i="c2p">Nothing starts because a pipeline finished. A deploy is an authenticated HTTP request that a person or an agent makes on purpose.</p>
+      <div class="tags"><span class="tag" data-i="c2g">explicit deploy</span></div>
+    </article>
+    <article class="card">
+      <h3 data-i="c3t">Not a sandbox</h3>
+      <p data-i="c3p">AST screening is admission control, not confinement: an admitted handler still executes in the agent process. The stub runtime cannot cap CPU or memory. For enforced limits run HESTIA_RUNTIME=docker.</p>
+      <div class="tags"><span class="tag ok" data-i="c3g">stated, not implied</span></div>
+    </article>
+    <article class="card">
+      <h3 data-i="c4t">Not multi-node</h3>
+      <p data-i="c4p">Production ledger is Postgres. HESTIA_REPLICAS greater than 1 is refused: a shared ledger is not a farm, and there is no sticky runtime-owner. Agents still run on this host.</p>
+      <div class="tags"><span class="tag ok" data-i="c4g">fails closed</span></div>
+    </article>
+  </div>
+</section>
+
+<section class="section wrap" id="layers">
+  <p class="eyebrow rv" data-i="ly_eye">One layer of the stack</p>
+  <h2 class="rv" data-i="ly_h">Where HESTIA sits</h2>
+  <p class="lede rv" data-i="ly_p">Each box below is a separate service with its own failure mode. Collapsing them is the usual source of confusion about where an agent actually lives.</p>
+  <div class="rail rv" aria-label="Ecosystem layers">
+    <div class="rail-step"><i aria-hidden="true"></i><strong>Factory</strong><span data-i="ly_1">writes the source</span></div>
+    <div class="rail-step"><i aria-hidden="true"></i><strong>THEMIS</strong><span data-i="ly_2">admits at publish</span></div>
+    <div class="rail-step hearth"><i aria-hidden="true"></i><strong>HESTIA</strong><span data-i="ly_3">runs the process</span></div>
+    <div class="rail-step"><i aria-hidden="true"></i><strong>Hub</strong><span data-i="ly_4">lists it</span></div>
+    <div class="rail-step"><i aria-hidden="true"></i><strong>ARGUS</strong><span data-i="ly_5">calls it</span></div>
+  </div>
+</section>
+
+<section class="section wrap" id="start">
+  <h2 class="rv" data-i="q_h">Quick start</h2>
+  <p class="lede rv" data-i="q_p">Python 3.11 or newer. The control plane listens on :9480 and the operator console is at /ui/. Set HESTIA_DEPLOY_TOKEN first: with it empty every write is refused, which is the intended default rather than an error.</p>
+  <pre class="rv">cd hestia
+export HESTIA_DEPLOY_TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')
+uv sync --extra dev --project .
+uv run --project . python -m hestia          # control plane on :9480
+
+# deploy an agent, then call it through the edge
+curl -sS localhost:9480/v1/tenants \
+  -H "Authorization: Bearer $HESTIA_DEPLOY_TOKEN" \
+  -H 'Content-Type: application/json' -d @tenant.json
+curl -sS localhost:9480/t/demo-echo/invoke \
+  -H 'Content-Type: application/json' -d '{"text":"ping"}'
+# -&gt; {"ok":true,"result":{...},"provider_pubkey":"...","signature":"..."}</pre>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="fgrid">
+      <div>
+        <div class="fbrand">HESTIA</div>
+        <p data-i="foot_blurb">Hosting control plane for AIMarket capability providers: isolated processes, a signed invoke edge, and an announce to the Hub that only happens when you ask for it.</p>
+      </div>
+      <div>
+        <h5 data-i="foot_docs">Docs</h5>
+        <a href="https://github.com/alexar76/hestia#readme" data-i="nav_guide">Guide</a>
+        <a href="https://github.com/alexar76/hestia/blob/main/docs/ARCHITECTURE.md" data-i="foot_arch">Architecture</a>
+        <a href="https://github.com/alexar76/hestia/blob/main/docs/USE-CASES.md" data-i="foot_use">Use cases</a>
+      </div>
+      <div>
+        <h5 data-i="foot_net">Network</h5>
+        <a href="https://modelmarket.dev" data-i="nav_hub">Hub</a>
+        <a href="https://hestia.modelmarket.dev">hestia.modelmarket.dev</a>
+        <a href="https://github.com/alexar76/hestia">GitHub</a>
+      </div>
+    </div>
+    <div class="fbot">
+      <span data-i="foot">HESTIA · MIT · Part of the AICOM agent economy</span>
+      <a href="https://github.com/alexar76/hestia/blob/main/LICENSE">MIT</a>
+    </div>
+  </div>
+</footer>
+
+<script type="module">
+import { mountHearth, probeHearth } from "./hearth.js";
+
+const I = {
+ "en": {
+  "kicker": "Hosting control plane",
+  "h1": "Deploy a capability agent, get an <em>isolated process</em>.",
+  "lead": "HESTIA runs AIMarket capability providers on the operator’s machines. You POST a deploy request; it starts the agent as an isolated process, puts it behind a stable URL with a signed invoke edge, and announces it to the Hub only when you ask.",
+  "cta_run": "Quick start",
+  "cta_why": "What it is not",
+  "cmd_copy": "COPY",
+  "cmd_copied": "COPIED",
+  "nav_how": "How it works",
+  "nav_scope": "What it is not",
+  "nav_layers": "Where it sits",
+  "nav_start": "Quick start",
+  "nav_guide": "Guide",
+  "nav_code": "GitHub",
+  "nav_hub": "Hub",
+  "m_tests": "Tests",
+  "m_cov": "Branch coverage",
+  "m_sig": "Response signature",
+  "m_lang": "Doc languages",
+  "m_iso": "Container defaults",
+  "hw_eye": "Request → admission → process → edge → receipt",
+  "hw_h": "How a deploy works",
+  "hw_p": "Six steps from an HTTP request to a signed response. None of them fire on their own: nothing starts because a build went green.",
+  "s1t": "Deploy request",
+  "s1p": "POST /v1/tenants with a bearer token. Body: slug, capability spec, source — either an inline handler or a pinned image digest — and the owner public key. An empty HESTIA_DEPLOY_TOKEN refuses every write, including one that supplies a token.",
+  "s2t": "Admission",
+  "s2p": "Inline handler source is screened by AST before it runs: no os, subprocess, eval, open, getattr, no dunder names, no str.format attribute walks. A pinned image must match an allow-listed sha256 digest. THEMIS can refuse the capability here.",
+  "s3t": "Start",
+  "s3p": "Stub runtime: a subprocess in its own 0700 directory with operator secrets stripped from its environment. Docker runtime: cap-drop ALL, read-only rootfs, no-new-privileges, a pids limit, an internal network and a digest-pinned image.",
+  "s4t": "Invoke edge",
+  "s4p": "The agent listens at /t/{slug} for invoke and health. The same call is also on the hearth at /ai-market/v2/invoke, routed by capability_id — that door is the AIMarket SKU bus too (deploy, status, list, stop; deploy and stop need the operator token). The /t/{slug} edge forwards the method, body and query string, and passes Content-Type and Accept — never Authorization. Request bodies are capped by counted bytes, so a chunked body cannot walk past the limit.",
+  "s5t": "Receipt",
+  "s5p": "Every response carries an Ed25519 signature over the result, the capability id and the SHA-256 of the input. The provider public key is published at /.well-known/ai-market.json, so a caller can verify without asking the host.",
+  "s6t": "Announce — optional",
+  "s6p": "The Hub catalogue changes only after an explicit announce. Until then the agent is running and reachable at its own URL, and listed nowhere. /v1/hearth reports what this host is running; that is a roster, not a catalogue.",
+  "n_h": "What HESTIA is not",
+  "n_p": "Factory writes the source. THEMIS admits at publish time. Hub is the catalogue. ARGUS is the client. HESTIA is only the host the agent runs on — and it is easier to use once you know what it refuses to be.",
+  "c1t": "Not a catalogue",
+  "c1p": "A hestia URL is not a Hub listing. /v1/hearth returns the agents this one host is running. Nothing about it is a marketplace index.",
+  "c1g": "roster, not index",
+  "c2t": "Not a build system",
+  "c2p": "Nothing starts because a pipeline finished. A deploy is an authenticated HTTP request that a person or an agent makes on purpose.",
+  "c2g": "explicit deploy",
+  "c3t": "Not a sandbox",
+  "c3p": "AST screening is admission control, not confinement: an admitted handler still executes in the agent process. The stub runtime cannot cap CPU or memory. For enforced limits run HESTIA_RUNTIME=docker.",
+  "c3g": "stated, not implied",
+  "c4t": "Not multi-node",
+  "c4p": "Production ledger is Postgres. HESTIA_REPLICAS greater than 1 is refused: a shared ledger is not a farm, and there is no sticky runtime-owner. Agents still run on this host.",
+  "c4g": "fails closed",
+  "ly_eye": "One layer of the stack",
+  "ly_h": "Where HESTIA sits",
+  "ly_p": "Each box below is a separate service with its own failure mode. Collapsing them is the usual source of confusion about where an agent actually lives.",
+  "ly_1": "writes the source",
+  "ly_2": "admits at publish",
+  "ly_3": "runs the process",
+  "ly_4": "lists it",
+  "ly_5": "calls it",
+  "q_h": "Quick start",
+  "q_p": "Python 3.11 or newer. The control plane listens on :9480 and the operator console is at /ui/. Set HESTIA_DEPLOY_TOKEN first: with it empty every write is refused, which is the intended default rather than an error.",
+  "tag_in_t": "AGENTS",
+  "tag_in_p": "one isolated process each",
+  "tag_iso_t": "ISOLATION",
+  "tag_iso_p": "the edge is the only way in",
+  "tag_hub_t": "HUB",
+  "tag_hub_p": "reached only by announce",
+  "stage_hint": "DRAG TO ORBIT · SCROLL TO ZOOM",
+  "stage_fallback": "WebGL is unavailable here. The diagram shows a deploy request entering the control plane, an agent process starting inside the isolation boundary, and a signed response leaving through the edge.",
+  "hud_sim": "SIM · diagram of the deploy path, not live fleet metrics",
+  "hud_live_empty": "0 hosted on the reference host — showing the deploy path as a model",
+  "hud_live_n": "LIVE · {n} agents running on the reference host",
+  "hud_off": "Reference host unreachable from this page — the diagram stays SIM",
+  "phase_IDLE": "IDLE",
+  "phase_DEPLOY": "DEPLOY",
+  "phase_ADMIT": "ADMIT",
+  "phase_START": "START",
+  "phase_INVOKE": "INVOKE",
+  "phase_RECEIPT": "RECEIPT",
+  "phase_ANNOUNCE": "ANNOUNCE",
+  "phase_STEADY": "RUNNING",
+  "foot": "HESTIA · MIT · Part of the AICOM agent economy",
+  "foot_blurb": "Hosting control plane for AIMarket capability providers: isolated processes, a signed invoke edge, and an announce to the Hub that only happens when you ask for it.",
+  "foot_docs": "Docs",
+  "foot_arch": "Architecture",
+  "foot_use": "Use cases",
+  "foot_net": "Network"
+ },
+ "ru": {
+  "kicker": "Control plane для хостинга",
+  "h1": "Деплой агента способности — <em>изолированный процесс</em>.",
+  "lead": "HESTIA запускает провайдеров способностей AIMarket на машинах оператора. Вы отправляете POST с запросом на деплой; она поднимает агента отдельным изолированным процессом, ставит его за стабильный URL с подписывающим invoke-edge и анонсирует в Hub только по вашему явному запросу.",
+  "cta_run": "Быстрый старт",
+  "cta_why": "Чем это не является",
+  "cmd_copy": "КОПИР.",
+  "cmd_copied": "СКОПИР.",
+  "nav_how": "Как работает",
+  "nav_scope": "Чем не является",
+  "nav_layers": "Место в стеке",
+  "nav_start": "Старт",
+  "nav_guide": "Гайд",
+  "nav_code": "GitHub",
+  "nav_hub": "Hub",
+  "m_tests": "Тесты",
+  "m_cov": "Покрытие веток",
+  "m_sig": "Подпись ответа",
+  "m_lang": "Языки документации",
+  "m_iso": "Дефолты контейнера",
+  "hw_eye": "Запрос → допуск → процесс → edge → квитанция",
+  "hw_h": "Как проходит деплой",
+  "hw_p": "Шесть шагов от HTTP-запроса до подписанного ответа. Ни один не срабатывает сам по себе: ничего не стартует от того, что сборка стала зелёной.",
+  "s1t": "Запрос на деплой",
+  "s1p": "POST /v1/tenants с bearer-токеном. Тело: slug, спецификация способности, источник — либо инлайн-handler, либо закреплённый digest образа — и публичный ключ владельца. Пустой HESTIA_DEPLOY_TOKEN отклоняет любую запись, в том числе с переданным токеном.",
+  "s2t": "Допуск",
+  "s2p": "Исходник инлайн-handler-а проверяется по AST до запуска: запрещены os, subprocess, eval, open, getattr, все dunder-имена и обходы атрибутов через str.format. Закреплённый образ обязан совпасть с sha256-digest из allow-list. На этом шаге способность может отклонить THEMIS.",
+  "s3t": "Старт",
+  "s3p": "Stub-runtime: подпроцесс в собственном каталоге с правами 0700 и окружением, вычищенным от секретов оператора. Docker-runtime: cap-drop ALL, read-only rootfs, no-new-privileges, лимит pids, internal-сеть и образ, закреплённый по digest.",
+  "s4t": "Invoke-edge",
+  "s4p": "Агент слушает /t/{slug} для invoke и health. Тот же вызов есть и на хосте: /ai-market/v2/invoke, маршрутизация по capability_id — эта дверь ещё и шина SKU AIMarket (deploy, status, list, stop; deploy и stop требуют токен оператора). Edge на /t/{slug} пробрасывает метод, тело и query-строку, передаёт Content-Type и Accept — и никогда Authorization. Тело запроса ограничено по фактически посчитанным байтам, поэтому chunked-запрос не обходит лимит.",
+  "s5t": "Квитанция",
+  "s5p": "Каждый ответ несёт подпись Ed25519 по результату, идентификатору способности и SHA-256 входа. Публичный ключ провайдера опубликован в /.well-known/ai-market.json, так что вызывающая сторона проверяет подпись, ничего не спрашивая у хоста.",
+  "s6t": "Announce — по желанию",
+  "s6p": "Каталог Hub меняется только после явного announce. До этого агент работает и доступен по своему URL, но нигде не перечислен. /v1/hearth показывает, что запущено на этом хосте: это список хоста, а не каталог.",
+  "n_h": "Чем HESTIA не является",
+  "n_p": "Factory пишет исходник. THEMIS допускает при публикации. Hub — каталог. ARGUS — клиент. HESTIA — только хост, на котором работает агент, и пользоваться ею проще, если понимать, чем она отказывается быть.",
+  "c1t": "Не каталог",
+  "c1p": "URL hestia — не строка в Hub. /v1/hearth возвращает агентов одного конкретного хоста. Это не индекс рынка ни в каком виде.",
+  "c1g": "список хоста, не индекс",
+  "c2t": "Не система сборки",
+  "c2p": "Ничего не стартует от завершения пайплайна. Деплой — это аутентифицированный HTTP-запрос, который кто-то делает намеренно.",
+  "c2g": "явный деплой",
+  "c3t": "Не песочница",
+  "c3p": "AST-проверка — это контроль допуска, а не изоляция: допущенный handler всё равно исполняется в процессе агента. Stub-runtime не умеет ограничивать CPU и память. Для реальных лимитов нужен HESTIA_RUNTIME=docker.",
+  "c3g": "сказано прямо",
+  "c4t": "Не мультинода",
+  "c4p": "Прод-леджер (журнал операций) — Postgres. HESTIA_REPLICAS больше 1 запрещён: общий леджер — не ферма, липкого runtime-owner нет. Агенты работают на этом хосте.",
+  "c4g": "отказ по умолчанию",
+  "ly_eye": "Один слой стека",
+  "ly_h": "Место HESTIA в стеке",
+  "ly_p": "Каждый блок ниже — отдельный сервис со своим режимом отказа. Их склеивание и есть обычная причина путаницы в том, где на самом деле живёт агент.",
+  "ly_1": "пишет исходник",
+  "ly_2": "допускает к публикации",
+  "ly_3": "держит процесс",
+  "ly_4": "перечисляет",
+  "ly_5": "вызывает",
+  "q_h": "Быстрый старт",
+  "q_p": "Python 3.11 или новее. Control plane слушает :9480, консоль оператора — на /ui/. Сначала задайте HESTIA_DEPLOY_TOKEN: пока он пуст, любая запись отклоняется — это задуманное поведение по умолчанию, а не ошибка.",
+  "tag_in_t": "АГЕНТЫ",
+  "tag_in_p": "по одному изолированному процессу",
+  "tag_iso_t": "ИЗОЛЯЦИЯ",
+  "tag_iso_p": "edge — единственный вход",
+  "tag_hub_t": "HUB",
+  "tag_hub_p": "только через announce",
+  "stage_hint": "ТАЩИТЕ ДЛЯ ОРБИТЫ · КОЛЕСО ДЛЯ МАСШТАБА",
+  "stage_fallback": "WebGL здесь недоступен. На схеме: запрос на деплой входит в control plane, внутри границы изоляции стартует процесс агента, а подписанный ответ уходит через edge.",
+  "hud_sim": "SIM · схема пути деплоя, а не живые метрики флота",
+  "hud_live_empty": "На эталонном хосте 0 агентов — показан путь деплоя как модель",
+  "hud_live_n": "LIVE · агентов на эталонном хосте: {n}",
+  "hud_off": "Эталонный хост с этой страницы недоступен — схема остаётся SIM",
+  "phase_IDLE": "ПРОСТОЙ",
+  "phase_DEPLOY": "ДЕПЛОЙ",
+  "phase_ADMIT": "ДОПУСК",
+  "phase_START": "СТАРТ",
+  "phase_INVOKE": "ВЫЗОВ",
+  "phase_RECEIPT": "КВИТАНЦИЯ",
+  "phase_ANNOUNCE": "ANNOUNCE",
+  "phase_STEADY": "РАБОТАЕТ",
+  "foot": "HESTIA · MIT · Часть экономики агентов AICOM",
+  "foot_blurb": "Control plane для хостинга провайдеров способностей AIMarket: изолированные процессы, подписывающий invoke-edge и announce в Hub, который происходит только по вашему запросу.",
+  "foot_docs": "Документы",
+  "foot_arch": "Архитектура",
+  "foot_use": "Сценарии",
+  "foot_net": "Сеть"
+ },
+ "es": {
+  "kicker": "Plano de control de alojamiento",
+  "h1": "Despliega un agente de capacidad y obtén un <em>proceso aislado</em>.",
+  "lead": "HESTIA ejecuta proveedores de capacidad de AIMarket en las máquinas del operador. Envías un POST con la solicitud de despliegue; arranca el agente como proceso aislado, lo deja tras una URL estable con un borde de invocación firmado y lo anuncia al Hub solo cuando tú lo pides.",
+  "cta_run": "Inicio rápido",
+  "cta_why": "Lo que no es",
+  "cmd_copy": "COPIAR",
+  "cmd_copied": "COPIADO",
+  "nav_how": "Cómo funciona",
+  "nav_scope": "Lo que no es",
+  "nav_layers": "Dónde encaja",
+  "nav_start": "Inicio",
+  "nav_guide": "Guía",
+  "nav_code": "GitHub",
+  "nav_hub": "Hub",
+  "m_tests": "Pruebas",
+  "m_cov": "Cobertura de ramas",
+  "m_sig": "Firma de respuesta",
+  "m_lang": "Idiomas de la doc",
+  "m_iso": "Valores del contenedor",
+  "hw_eye": "Solicitud → admisión → proceso → borde → recibo",
+  "hw_h": "Cómo ocurre un despliegue",
+  "hw_p": "Seis pasos desde una solicitud HTTP hasta una respuesta firmada. Ninguno se dispara solo: nada arranca porque una compilación haya pasado.",
+  "s1t": "Solicitud de despliegue",
+  "s1p": "POST /v1/tenants con un token bearer. Cuerpo: slug, especificación de la capacidad, origen —un handler en línea o un digest de imagen fijado— y la clave pública del propietario. Con HESTIA_DEPLOY_TOKEN vacío se rechaza toda escritura, incluso si se envía un token.",
+  "s2t": "Admisión",
+  "s2p": "El código del handler en línea se revisa por AST antes de ejecutarse: sin os, subprocess, eval, open, getattr, sin nombres dunder y sin recorridos de atributos vía str.format. Una imagen fijada debe coincidir con un digest sha256 de la lista permitida. THEMIS puede rechazar aquí la capacidad.",
+  "s3t": "Arranque",
+  "s3p": "Runtime stub: un subproceso en su propio directorio 0700 y con el entorno limpio de secretos del operador. Runtime docker: cap-drop ALL, rootfs de solo lectura, no-new-privileges, límite de pids, red interna e imagen fijada por digest.",
+  "s4t": "Borde de invocación",
+  "s4p": "El agente escucha en /t/{slug} para invoke y health. La misma llamada está también en el host en /ai-market/v2/invoke, enrutada por capability_id — esa puerta es además el bus de SKU de AIMarket (deploy, status, list, stop; deploy y stop requieren el token del operador). El borde /t/{slug} reenvía el método, el cuerpo y la cadena de consulta, y pasa Content-Type y Accept — nunca Authorization. Los cuerpos se limitan contando bytes, así que un cuerpo chunked no esquiva el límite.",
+  "s5t": "Recibo",
+  "s5p": "Cada respuesta lleva una firma Ed25519 sobre el resultado, el id de la capacidad y el SHA-256 de la entrada. La clave pública del proveedor se publica en /.well-known/ai-market.json, de modo que quien llama verifica sin preguntar al host.",
+  "s6t": "Anuncio — opcional",
+  "s6p": "El catálogo del Hub cambia solo tras un anuncio explícito. Hasta entonces el agente está en marcha y accesible en su URL, y no figura en ninguna lista. /v1/hearth informa de lo que ejecuta este host: es la lista del host, no un catálogo.",
+  "n_h": "Lo que HESTIA no es",
+  "n_p": "Factory escribe el código. THEMIS admite en el momento de publicar. Hub es el catálogo. ARGUS es el cliente. HESTIA es solo el host donde corre el agente, y se usa mejor cuando se sabe qué se niega a ser.",
+  "c1t": "No es un catálogo",
+  "c1p": "Una URL de hestia no es una entrada del catálogo del Hub. /v1/hearth devuelve los agentes que ejecuta este host concreto. No es un índice de mercado en ningún sentido.",
+  "c1g": "lista del host, no índice",
+  "c2t": "No es un sistema de compilación",
+  "c2p": "Nada arranca porque termine un pipeline. Un despliegue es una solicitud HTTP autenticada que alguien hace a propósito.",
+  "c2g": "despliegue explícito",
+  "c3t": "No es un sandbox",
+  "c3p": "La revisión AST es control de admisión, no confinamiento: un handler admitido sigue ejecutándose en el proceso del agente. El runtime stub no puede limitar CPU ni memoria. Para límites reales usa HESTIA_RUNTIME=docker.",
+  "c3g": "dicho sin rodeos",
+  "c4t": "No es multinodo",
+  "c4p": "El libro contable de producción es Postgres. HESTIA_REPLICAS mayor que 1 se rechaza: un libro contable compartido no es una granja y no hay afinidad de runtime-owner. Los agentes se ejecutan en este host.",
+  "c4g": "denegar por defecto",
+  "ly_eye": "Una capa de la pila",
+  "ly_h": "Dónde encaja HESTIA",
+  "ly_p": "Cada bloque de abajo es un servicio distinto con su propio modo de fallo. Confundirlos es la causa habitual de no saber dónde vive realmente un agente.",
+  "ly_1": "escribe el código",
+  "ly_2": "admite al publicar",
+  "ly_3": "ejecuta el proceso",
+  "ly_4": "lo lista",
+  "ly_5": "lo llama",
+  "q_h": "Inicio rápido",
+  "q_p": "Python 3.11 o superior. El plano de control escucha en :9480 y la consola del operador está en /ui/. Define primero HESTIA_DEPLOY_TOKEN: mientras esté vacío se rechaza toda escritura, que es el valor por defecto buscado y no un fallo.",
+  "tag_in_t": "AGENTES",
+  "tag_in_p": "un proceso aislado cada uno",
+  "tag_iso_t": "AISLAMIENTO",
+  "tag_iso_p": "el borde es la única entrada",
+  "tag_hub_t": "HUB",
+  "tag_hub_p": "solo se alcanza por anuncio",
+  "stage_hint": "ARRASTRA PARA ORBITAR · RUEDA PARA ZOOM",
+  "stage_fallback": "Aquí no hay WebGL. El diagrama muestra una solicitud de despliegue entrando en el plano de control, un proceso de agente arrancando dentro del límite de aislamiento y una respuesta firmada saliendo por el borde.",
+  "hud_sim": "SIM · diagrama de la ruta de despliegue, no métricas reales de la flota",
+  "hud_live_empty": "0 alojados en el host de referencia — se muestra la ruta de despliegue como modelo",
+  "hud_live_n": "LIVE · {n} agentes en marcha en el host de referencia",
+  "hud_off": "Host de referencia inalcanzable desde esta página — el diagrama sigue en SIM",
+  "phase_IDLE": "INACTIVO",
+  "phase_DEPLOY": "DESPLIEGUE",
+  "phase_ADMIT": "ADMISIÓN",
+  "phase_START": "ARRANQUE",
+  "phase_INVOKE": "INVOCACIÓN",
+  "phase_RECEIPT": "RECIBO",
+  "phase_ANNOUNCE": "ANUNCIO",
+  "phase_STEADY": "EN MARCHA",
+  "foot": "HESTIA · MIT · Parte de la economía de agentes AICOM",
+  "foot_blurb": "Plano de control de alojamiento para proveedores de capacidad de AIMarket: procesos aislados, un borde de invocación firmado y un anuncio al Hub que solo ocurre si lo pides.",
+  "foot_docs": "Documentos",
+  "foot_arch": "Arquitectura",
+  "foot_use": "Casos de uso",
+  "foot_net": "Red"
+ },
+ "fr": {
+  "kicker": "Plan de contrôle d’hébergement",
+  "h1": "Déployez un agent de capacité, obtenez un <em>processus isolé</em>.",
+  "lead": "HESTIA exécute des fournisseurs de capacité AIMarket sur les machines de l’opérateur. Vous envoyez une requête de déploiement en POST ; elle démarre l’agent comme processus isolé, le place derrière une URL stable avec une façade d’invocation signée, et ne l’annonce au Hub que si vous le demandez.",
+  "cta_run": "Démarrage rapide",
+  "cta_why": "Ce que ce n’est pas",
+  "cmd_copy": "COPIER",
+  "cmd_copied": "COPIÉ",
+  "nav_how": "Fonctionnement",
+  "nav_scope": "Ce que ce n’est pas",
+  "nav_layers": "Place dans la pile",
+  "nav_start": "Démarrer",
+  "nav_guide": "Guide",
+  "nav_code": "GitHub",
+  "nav_hub": "Hub",
+  "m_tests": "Tests",
+  "m_cov": "Couverture de branches",
+  "m_sig": "Signature de réponse",
+  "m_lang": "Langues de la doc",
+  "m_iso": "Réglages du conteneur",
+  "hw_eye": "Requête → admission → processus → façade → reçu",
+  "hw_h": "Comment se passe un déploiement",
+  "hw_p": "Six étapes, d’une requête HTTP à une réponse signée. Aucune ne se déclenche seule : rien ne démarre parce qu’une build est passée au vert.",
+  "s1t": "Requête de déploiement",
+  "s1p": "POST /v1/tenants avec un jeton bearer. Corps : slug, spécification de capacité, source — un handler en ligne ou un digest d’image épinglé — et la clé publique du propriétaire. Un HESTIA_DEPLOY_TOKEN vide refuse toute écriture, même accompagnée d’un jeton.",
+  "s2t": "Admission",
+  "s2p": "Le code du handler en ligne passe un examen AST avant de s’exécuter : pas de os, subprocess, eval, open ni getattr, aucun nom dunder, aucun parcours d’attributs via str.format. Une image épinglée doit correspondre à un digest sha256 de la liste autorisée. THEMIS peut refuser la capacité ici.",
+  "s3t": "Démarrage",
+  "s3p": "Runtime stub : un sous-processus dans son propre répertoire 0700, l’environnement débarrassé des secrets de l’opérateur. Runtime docker : cap-drop ALL, rootfs en lecture seule, no-new-privileges, limite de pids, réseau interne et image épinglée par digest.",
+  "s4t": "Façade d’invocation",
+  "s4p": "L’agent écoute /t/{slug} pour invoke et health. Le même appel est aussi sur l’hôte à /ai-market/v2/invoke, routé par capability_id — cette porte est aussi le bus SKU AIMarket (deploy, status, list, stop ; deploy et stop exigent le jeton opérateur). La façade /t/{slug} transmet la méthode, le corps et la chaîne de requête, et passe Content-Type et Accept — jamais Authorization. Les corps sont plafonnés en octets comptés : un corps chunked ne contourne pas la limite.",
+  "s5t": "Reçu",
+  "s5p": "Chaque réponse porte une signature Ed25519 sur le résultat, l’identifiant de capacité et le SHA-256 de l’entrée. La clé publique du fournisseur est publiée sur /.well-known/ai-market.json : l’appelant vérifie sans rien demander à l’hôte.",
+  "s6t": "Annonce — facultative",
+  "s6p": "Le catalogue du Hub ne change qu’après une annonce explicite. Jusque-là l’agent tourne et répond à son URL, sans figurer nulle part. /v1/hearth indique ce que cet hôte exécute : c’est la liste de l’hôte, pas un catalogue.",
+  "n_h": "Ce que HESTIA n’est pas",
+  "n_p": "Factory écrit le code. THEMIS admet à la publication. Hub est le catalogue. ARGUS est le client. HESTIA n’est que l’hôte où tourne l’agent — et on s’en sert mieux en sachant ce qu’elle refuse d’être.",
+  "c1t": "Pas un catalogue",
+  "c1p": "Une URL hestia n’est pas une ligne du Hub. /v1/hearth renvoie les agents que cet hôte précis exécute. Ce n’est en rien un index de marché.",
+  "c1g": "liste de l’hôte, pas index",
+  "c2t": "Pas un système de build",
+  "c2p": "Rien ne démarre parce qu’un pipeline s’est terminé. Un déploiement est une requête HTTP authentifiée que quelqu’un fait délibérément.",
+  "c2g": "déploiement explicite",
+  "c3t": "Pas un bac à sable",
+  "c3p": "L’examen AST est un contrôle d’admission, pas un confinement : un handler admis s’exécute quand même dans le processus de l’agent. Le runtime stub ne plafonne ni CPU ni mémoire. Pour de vraies limites, HESTIA_RUNTIME=docker.",
+  "c3g": "dit franchement",
+  "c4t": "Pas multi-nœud",
+  "c4p": "Le registre de production est Postgres. HESTIA_REPLICAS supérieur à 1 est refusé : un registre partagé n’est pas une ferme, et il n’y a pas de runtime-owner sticky. Les agents restent sur cet hôte.",
+  "c4g": "refus par défaut",
+  "ly_eye": "Une couche de la pile",
+  "ly_h": "Où se place HESTIA",
+  "ly_p": "Chaque bloc ci-dessous est un service distinct avec son propre mode de panne. Les confondre est la cause habituelle du flou sur l’endroit où vit réellement un agent.",
+  "ly_1": "écrit le code",
+  "ly_2": "admet à la publication",
+  "ly_3": "exécute le processus",
+  "ly_4": "le référence",
+  "ly_5": "l’appelle",
+  "q_h": "Démarrage rapide",
+  "q_p": "Python 3.11 ou plus récent. Le plan de contrôle écoute sur :9480 et la console opérateur est sur /ui/. Définissez d’abord HESTIA_DEPLOY_TOKEN : tant qu’il est vide, toute écriture est refusée — c’est la valeur par défaut voulue, pas une panne.",
+  "tag_in_t": "AGENTS",
+  "tag_in_p": "un processus isolé chacun",
+  "tag_iso_t": "ISOLATION",
+  "tag_iso_p": "la façade est la seule entrée",
+  "tag_hub_t": "HUB",
+  "tag_hub_p": "atteint seulement par annonce",
+  "stage_hint": "GLISSER POUR ORBITER · MOLETTE POUR ZOOMER",
+  "stage_fallback": "WebGL est indisponible ici. Le schéma montre une requête de déploiement entrant dans le plan de contrôle, un processus d’agent qui démarre à l’intérieur de la frontière d’isolation, et une réponse signée qui sort par la façade.",
+  "hud_sim": "SIM · schéma du chemin de déploiement, pas des métriques de flotte",
+  "hud_live_empty": "0 hébergé sur l’hôte de référence — le chemin de déploiement est montré comme modèle",
+  "hud_live_n": "LIVE · {n} agents en cours sur l’hôte de référence",
+  "hud_off": "Hôte de référence injoignable depuis cette page — le schéma reste en SIM",
+  "phase_IDLE": "INACTIF",
+  "phase_DEPLOY": "DÉPLOIEMENT",
+  "phase_ADMIT": "ADMISSION",
+  "phase_START": "DÉMARRAGE",
+  "phase_INVOKE": "INVOCATION",
+  "phase_RECEIPT": "REÇU",
+  "phase_ANNOUNCE": "ANNONCE",
+  "phase_STEADY": "EN MARCHE",
+  "foot": "HESTIA · MIT · Partie de l’économie d’agents AICOM",
+  "foot_blurb": "Plan de contrôle d’hébergement pour les fournisseurs de capacité AIMarket : processus isolés, façade d’invocation signée, et une annonce au Hub qui n’a lieu que si vous la demandez.",
+  "foot_docs": "Documents",
+  "foot_arch": "Architecture",
+  "foot_use": "Cas d’usage",
+  "foot_net": "Réseau"
+ },
+ "zh": {
+  "kicker": "托管控制平面",
+  "h1": "部署一个能力智能体，得到一个<em>隔离进程</em>。",
+  "lead": "HESTIA 在运营者的机器上运行 AIMarket 能力提供方。你发一个 POST 部署请求，它把智能体作为独立隔离进程启动，放在一个带签名调用边界的稳定 URL 后面，并且只有你明确要求时才向 Hub 宣布。",
+  "cta_run": "快速开始",
+  "cta_why": "它不是什么",
+  "cmd_copy": "复制",
+  "cmd_copied": "已复制",
+  "nav_how": "工作方式",
+  "nav_scope": "它不是什么",
+  "nav_layers": "所处位置",
+  "nav_start": "开始",
+  "nav_guide": "指南",
+  "nav_code": "GitHub",
+  "nav_hub": "Hub",
+  "m_tests": "测试",
+  "m_cov": "分支覆盖率",
+  "m_sig": "响应签名",
+  "m_lang": "文档语言",
+  "m_iso": "容器默认项",
+  "hw_eye": "请求 → 准入 → 进程 → 边界 → 回执",
+  "hw_h": "一次部署是怎么发生的",
+  "hw_p": "从 HTTP 请求到签名响应，一共六步。没有一步会自己触发：不会因为构建变绿就启动任何东西。",
+  "s1t": "部署请求",
+  "s1p": "带 bearer 令牌 POST /v1/tenants。请求体包含 slug、能力规格、来源（内联 handler 或固定的镜像 digest）以及所有者公钥。HESTIA_DEPLOY_TOKEN 为空时拒绝一切写入，即使请求里带了令牌。",
+  "s2t": "准入",
+  "s2p": "内联 handler 源码在运行前先过 AST 检查：禁止 os、subprocess、eval、open、getattr，禁止所有 dunder 名称，禁止用 str.format 走属性链。固定镜像必须匹配允许清单里的 sha256 digest。THEMIS 可以在这一步拒绝该能力。",
+  "s3t": "启动",
+  "s3p": "stub 运行时：一个子进程，拥有自己的 0700 目录，环境中运营者的密钥已被清除。docker 运行时：cap-drop ALL、只读 rootfs、no-new-privileges、pids 限制、internal 网络，以及按 digest 固定的镜像。",
+  "s4t": "调用边界",
+  "s4p": "智能体在 /t/{slug} 上监听 invoke 和 health。同一次调用也可以走主机上的 /ai-market/v2/invoke，按 capability_id 路由——那扇门同时也是 AIMarket 的 SKU 总线（deploy、status、list、stop；deploy 和 stop 需要运营者令牌）。/t/{slug} 边界转发方法、请求体和查询串，并传递 Content-Type 与 Accept——从不转发 Authorization。请求体按实际计数的字节设限，所以 chunked 请求体无法绕过上限。",
+  "s5t": "回执",
+  "s5p": "每个响应都带一个 Ed25519 签名，覆盖结果、能力 id 和输入的 SHA-256。提供方公钥公开在 /.well-known/ai-market.json，调用方无需询问主机即可自行验证。",
+  "s6t": "向 Hub 宣布 — 可选",
+  "s6p": "只有在显式 announce 之后，Hub 目录才会变化。在那之前智能体已经在运行、可以通过自己的 URL 访问，但不出现在任何列表里。/v1/hearth 报告这台主机在跑什么：那是主机名册，不是目录。",
+  "n_h": "HESTIA 不是什么",
+  "n_p": "Factory 写源码。THEMIS 在发布时准入。Hub 是目录。ARGUS 是调用方。HESTIA 只是智能体实际运行的那台主机——知道它拒绝成为什么，反而更好用。",
+  "c1t": "不是目录",
+  "c1p": "hestia 的 URL 不是 Hub 里的一行。/v1/hearth 返回的是这一台主机正在运行的智能体。它在任何意义上都不是市场索引。",
+  "c1g": "名册，不是索引",
+  "c2t": "不是构建系统",
+  "c2p": "不会因为流水线跑完就启动任何东西。部署是某个人或某个智能体有意发出的、经过认证的 HTTP 请求。",
+  "c2g": "显式部署",
+  "c3t": "不是沙箱",
+  "c3p": "AST 检查是准入控制，不是隔离：通过准入的 handler 仍然在智能体进程里执行。stub 运行时无法限制 CPU 和内存。要真正的限额请用 HESTIA_RUNTIME=docker。",
+  "c3g": "明说，不含糊",
+  "c4t": "不是多节点",
+  "c4p": "生产账本是 Postgres。HESTIA_REPLICAS 大于 1 一律拒绝：共享账本不是服务器集群，也没有粘性 runtime-owner。智能体仍运行在本机。",
+  "c4g": "默认拒绝",
+  "ly_eye": "技术栈中的一层",
+  "ly_h": "HESTIA 在哪一层",
+  "ly_p": "下面每个方块都是独立服务，各有各的失效方式。把它们混为一谈，正是“智能体到底跑在哪里”这个困惑的来源。",
+  "ly_1": "写源码",
+  "ly_2": "发布时准入",
+  "ly_3": "运行进程",
+  "ly_4": "列进目录",
+  "ly_5": "发起调用",
+  "q_h": "快速开始",
+  "q_p": "需要 Python 3.11 或更高版本。控制平面监听 :9480，运营者控制台在 /ui/。请先设置 HESTIA_DEPLOY_TOKEN：它为空时一切写入都会被拒绝，这是有意为之的默认值，不是故障。",
+  "tag_in_t": "智能体",
+  "tag_in_p": "各自一个隔离进程",
+  "tag_iso_t": "隔离边界",
+  "tag_iso_p": "边界是唯一入口",
+  "tag_hub_t": "HUB",
+  "tag_hub_p": "只能通过 announce 抵达",
+  "stage_hint": "拖动旋转 · 滚轮缩放",
+  "stage_fallback": "此处没有 WebGL。图示内容是：一个部署请求进入控制平面，一个智能体进程在隔离边界内启动，一个签名响应从边界离开。",
+  "hud_sim": "SIM · 部署路径示意图，不是真实集群指标",
+  "hud_live_empty": "参考主机上有 0 个智能体——这里演示的是部署路径模型",
+  "hud_live_n": "LIVE · 参考主机上运行中的智能体：{n}",
+  "hud_off": "本页无法访问参考主机——示意图保持 SIM",
+  "phase_IDLE": "空闲",
+  "phase_DEPLOY": "部署",
+  "phase_ADMIT": "准入",
+  "phase_START": "启动",
+  "phase_INVOKE": "调用",
+  "phase_RECEIPT": "回执",
+  "phase_ANNOUNCE": "宣布",
+  "phase_STEADY": "运行中",
+  "foot": "HESTIA · MIT · AICOM 智能体经济的一部分",
+  "foot_blurb": "面向 AIMarket 能力提供方的托管控制平面：隔离进程、带签名的调用边界，以及只有你要求时才会向 Hub 宣布。",
+  "foot_docs": "文档",
+  "foot_arch": "架构",
+  "foot_use": "使用场景",
+  "foot_net": "网络"
+ }
+};
+
+const REDUCE = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let lang = "en";
+const hudState = { mode: "SIM", phase: "EMPTY", note: "" };
+
+function pack(){ return I[lang] || I.en; }
+
+function apply(next){
+  lang = next;
+  const p = pack();
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-i]").forEach((el) => {
+    const key = el.getAttribute("data-i");
+    if (p[key]) el.innerHTML = p[key];
+  });
+  document.querySelectorAll(".langs button").forEach((b) => {
+    b.setAttribute("aria-pressed", b.dataset.lang === lang ? "true" : "false");
+  });
+  const url = new URL(location.href);
+  url.searchParams.set("lang", lang);
+  history.replaceState({}, "", url);
+  paintHud(hudState);
+}
+
+function paintHud({ mode, phase, note, phaseLabel }){
+  hudState.mode = mode;
+  hudState.phase = phase;
+  hudState.note = note;
+  const p = pack();
+  const modeEl = document.getElementById("hud-mode");
+  const modeL = document.getElementById("hud-mode-l");
+  const phaseEl = document.getElementById("hud-phase");
+  const msgEl = document.getElementById("hud-msg");
+  modeEl.className = "mode " + mode;
+  modeL.textContent = mode;
+  phaseEl.textContent = phaseLabel || p[`phase_${phase}`] || phase;
+  msgEl.textContent = note || (mode === "SIM" ? p.hud_sim : p.hud_off);
+}
+
+const start = new URLSearchParams(location.search).get("lang") || (navigator.language || "en").slice(0, 2);
+apply(["en","ru","es","fr","zh"].includes(start) ? start : "en");
+document.querySelectorAll(".langs button").forEach((b) => b.addEventListener("click", () => apply(b.dataset.lang)));
+
+(function stars(){
+  const c = document.getElementById("stars");
+  const ctx = c.getContext("2d");
+  let dots = [];
+  let raf = 0;
+  function resize(){
+    c.width = innerWidth;
+    c.height = innerHeight;
+    const n = Math.min(160, Math.floor(innerWidth * innerHeight / 14000));
+    dots = Array.from({ length: n }, () => ({
+      x: Math.random() * c.width,
+      y: Math.random() * c.height,
+      r: Math.random() * 1.2 + 0.2,
+      a: Math.random() * 0.55 + 0.15,
+      s: Math.random() * 0.25 + 0.05,
+    }));
+  }
+  function draw(){
+    ctx.clearRect(0, 0, c.width, c.height);
+    for (const d of dots){
+      if (!REDUCE) d.a += Math.sin(performance.now() * 0.001 * d.s) * 0.002;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,196,138,${Math.max(0.08, Math.min(0.7, d.a))})`;
+      ctx.fill();
+    }
+    if (!REDUCE) raf = requestAnimationFrame(draw);
+  }
+  resize();
+  draw();
+  addEventListener("resize", () => { resize(); if (REDUCE) draw(); }, { passive: true });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) cancelAnimationFrame(raf);
+    else draw();
+  });
+})();
+
+(() => {
+  const bar = document.getElementById("progress");
+  const onScroll = () => {
+    const h = document.documentElement;
+    const p = h.scrollTop / Math.max(1, h.scrollHeight - h.clientHeight);
+    bar.style.width = (p * 100).toFixed(2) + "%";
+  };
+  addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+  const burger = document.getElementById("burger");
+  const drawer = document.getElementById("drawer");
+  function setMenu(open) {
+    drawer.classList.toggle("open", open);
+    document.body.classList.toggle("menu-open", open);
+    burger.setAttribute("aria-expanded", String(open));
+    burger.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+    burger.textContent = open ? "✕" : "☰";
+  }
+  burger.addEventListener("click", () => setMenu(!drawer.classList.contains("open")));
+  drawer.addEventListener("click", (e) => {
+    if (e.target.tagName === "A") setMenu(false);
+  });
+  addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && drawer.classList.contains("open")) setMenu(false);
+  });
+})();
+
+(() => {
+  const items = [...document.querySelectorAll(".rv")];
+  if (REDUCE || !("IntersectionObserver" in window)) { items.forEach((i) => i.classList.add("in")); return; }
+  const io = new IntersectionObserver((es, obs) => {
+    es.forEach((e, i) => {
+      if (!e.isIntersecting) return;
+      setTimeout(() => e.target.classList.add("in"), i * 60);
+      obs.unobserve(e.target);
+    });
+  }, { rootMargin: "0px 0px -10% 0px", threshold: 0.08 });
+  items.forEach((i) => io.observe(i));
+})();
+
+document.getElementById("copybtn").addEventListener("click", async () => {
+  const btn = document.getElementById("copybtn");
+  try { await navigator.clipboard.writeText(document.getElementById("cmdtext").textContent.trim()); }
+  catch { return; }
+  btn.textContent = pack().cmd_copied;
+  btn.classList.add("done");
+  setTimeout(() => { btn.textContent = pack().cmd_copy; btn.classList.remove("done"); }, 1400);
+});
+
+const roster = await probeHearth();
+if (roster.mode !== "LIVE") {
+  hudState.note = pack().hud_off;
+  paintHud({ mode: "SIM", phase: "EMPTY", note: pack().hud_off, phaseLabel: pack().phase_EMPTY });
+}
+
+const mounted = mountHearth(document.getElementById("hearth"), {
+  roster,
+  labels: pack,
+  tagInside: document.getElementById("tag-inside"),
+  tagMembrane: document.getElementById("tag-membrane"),
+  tagHub: document.getElementById("tag-hub"),
+  onFail() {
+    const fb = document.getElementById("fallback");
+    fb.classList.add("on");
+    fb.setAttribute("aria-hidden", "false");
+  },
+  onHud(state) { paintHud(state); },
+});
+if (mounted && mounted.ok === false) document.getElementById("fallback").classList.add("on");
+</script>
+</body>
+</html>
