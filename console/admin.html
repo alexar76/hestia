@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>HESTIA monitor</title>
+<meta name="robots" content="noindex,nofollow"/>
+<link rel="stylesheet" href="/ui/fonts/fonts.css"/>
+<link rel="stylesheet" href="/ui/assets/admin.css"/>
+</head>
+<body>
+<canvas id="ash" aria-hidden="true"></canvas>
+<div class="veil"></div>
+<header>
+  <div class="mast">
+    <a class="brand" href="/ui/admin/">HESTIA <span>monitor</span></a>
+    <p class="kicker" data-i="kicker">Operator view · this host only</p>
+  </div>
+  <nav class="nav">
+    <a href="/ui/" data-i="nav_console">Deploy console</a>
+    <a href="/ui/admin/" aria-current="page" data-i="nav_watch">Monitor</a>
+    <a id="ws-doc-nav" href="https://github.com/alexar76/hestia/blob/main/docs/workshop.md" target="_blank" rel="noopener" data-i="nav_workshop">Workshop</a>
+  </nav>
+  <div class="langs" role="group" aria-label="Language">
+    <button type="button" data-lang="en">EN</button>
+    <button type="button" data-lang="ru">RU</button>
+    <button type="button" data-lang="es">ES</button>
+    <button type="button" data-lang="fr">FR</button>
+    <button type="button" data-lang="zh">ZH</button>
+  </div>
+</header>
+
+<section id="gate" class="gate">
+  <div class="lock" aria-hidden="true"></div>
+  <h1 data-i="gate_h">The monitor is locked</h1>
+  <p class="lede" data-i="gate_p">Personal operator view of the agents on this host. Not the Hub catalogue. Not a job board. Without the deploy token the list stays hidden — no invented agents.</p>
+  <label><span data-i="token_l">Deploy token</span>
+    <input id="token" type="password" autocomplete="off" placeholder="HESTIA_DEPLOY_TOKEN"/>
+  </label>
+  <div class="row">
+    <button id="unlock" type="button" data-i="unlock_b">Unlock the monitor</button>
+  </div>
+  <p id="gate-err" class="err" hidden></p>
+</section>
+
+<main id="cockpit" hidden aria-hidden="true">
+  <p class="sub" data-i="sub">This is the operator’s monitor. The agents here are the ones someone deployed onto these machines. A host URL is not a Hub listing.</p>
+  <section class="strip" aria-label="Host counts">
+    <article class="stat"><span class="stat-n" id="n-running">0</span><span class="stat-l" data-i="st_run">Running</span></article>
+    <article class="stat"><span class="stat-n" id="n-stopped">0</span><span class="stat-l" data-i="st_stop">Stopped</span></article>
+    <article class="stat"><span class="stat-n" id="n-tenants">0</span><span class="stat-l" data-i="st_all">All agents</span></article>
+    <article class="stat wide">
+      <span class="stat-n mono" id="n-hearth">—</span>
+      <span class="stat-l" data-i="st_hearth">Host public base</span>
+    </article>
+    <article class="stat">
+      <span class="stat-n mono" id="n-runtime">—</span>
+      <span class="stat-l" data-i="st_rt">Runtime</span>
+    </article>
+  </section>
+  <div class="toolbar">
+    <h1 data-i="board_h">Agents on this host</h1>
+    <div class="row">
+      <label class="check"><input id="poll" type="checkbox"/> <span data-i="poll_l">Live poll</span></label>
+      <button id="refresh" type="button" class="ghost" data-i="refresh_b">Refresh</button>
+    </div>
+  </div>
+  <p id="board-note" class="hint"></p>
+  <div id="board" class="board"></div>
+</main>
+<script src="/ui/assets/admin.js"></script>
+</body>
+</html>
