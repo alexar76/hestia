@@ -1,0 +1,35 @@
+# Production ledger overlay: dedicated hestia database, not Hub tables.
+# Isolation inside this box stays stub (no docker.sock, no host engine).
+# Replicas: do not scale this service. A shared ledger is not a tenant farm.
+#
+#   HESTIA_DEPLOY_TOKEN=… HESTIA_POSTGRES_PASSWORD=… \
+#     docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+#
+# Postgres is unpublished. Host .env stays chmod 600; nothing is baked into the image.
+
+services:
+  hestia-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: hestia
+      POSTGRES_USER: hestia
+      POSTGRES_PASSWORD: "${HESTIA_POSTGRES_PASSWORD:?set HESTIA_POSTGRES_PASSWORD}"
+    volumes:
+      - hestia-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hestia -d hestia"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+  hestia:
+    depends_on:
+      hestia-postgres:
+        condition: service_healthy
+    environment:
+      HESTIA_DATABASE_URL: "postgresql://hestia:${HESTIA_POSTGRES_PASSWORD}@hestia-postgres:5432/hestia"
+      HESTIA_RUNTIME: stub
+      HESTIA_ALLOW_HOST_DOCKER: "0"
+
+volumes:
+  hestia-pg:

@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: hestia
+          POSTGRES_USER: hestia
+          POSTGRES_PASSWORD: hestia
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hestia -d hestia"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      HESTIA_TEST_DATABASE_URL: postgresql://hestia:hestia@127.0.0.1:5432/hestia
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --project .
+      - run: uv run --project . ruff check .
+      - run: uv run --project . pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t hestia:ci .

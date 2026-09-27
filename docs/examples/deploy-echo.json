@@ -1,0 +1,18 @@
+{
+  "slug": "demo-echo",
+  "capability": {
+    "product_id": "demo-agent",
+    "capability_id": "demo.echo@v1",
+    "name": "Demo echo",
+    "description": "Echoes the payload so a live invoke can be proven.",
+    "price_per_call_usd": 0.001,
+    "input_schema": {"type": "object"},
+    "output_schema": {"type": "object"},
+    "publisher_id": "local",
+    "provider_pubkey": ""
+  },
+  "source": {"kind": "template", "handler": ""},
+  "owner_pubkey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+  "announce": false,
+  "note": "sealed stub — not a Hub listing"
+}
