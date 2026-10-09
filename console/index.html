@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>HESTIA console</title>
+<link rel="stylesheet" href="/ui/assets/console.css"/>
+</head>
+<body>
+<header>
+  <a class="brand" href="/ui/">HESTIA <span>host</span></a>
+  <nav class="nav">
+    <a href="/ui/" aria-current="page" data-i="nav_console">Deploy</a>
+    <a href="/ui/admin/" data-i="nav_watch">Watch</a>
+    <a id="ws-doc-nav" href="https://github.com/alexar76/hestia/blob/main/docs/workshop.md" target="_blank" rel="noopener" data-i="nav_workshop">Workshop</a>
+  </nav>
+  <div class="langs" role="group" aria-label="Language">
+    <button type="button" data-lang="en">EN</button>
+    <button type="button" data-lang="ru">RU</button>
+    <button type="button" data-lang="es">ES</button>
+    <button type="button" data-lang="fr">FR</button>
+    <button type="button" data-lang="zh">ZH</button>
+  </div>
+  <p class="sub" data-i="sub">This is the runtime. It is not the Hub catalogue. Agents appear here only after someone deploys them onto this operator’s machines.</p>
+</header>
+<main>
+  <section class="panel">
+    <h1 data-i="deploy_h">Deploy onto this host</h1>
+    <label><span data-i="token_l">Deploy token</span>
+      <input id="token" type="password" autocomplete="off" placeholder="HESTIA_DEPLOY_TOKEN"/>
+    </label>
+    <p class="hint" data-i="token_h">Paste the value you exported as HESTIA_DEPLOY_TOKEN for this process — not the placeholder, not a Hub key. Empty host token refuses every write. Do not paste a secret into hestia.modelmarket.dev unless you operate that host.</p>
+    <label><span data-i="slug_l">Slug</span>
+      <input id="slug" value="demo-echo" maxlength="48"/>
+    </label>
+    <label><span data-i="cap_l">Capability JSON</span>
+      <textarea id="capability" rows="10">{
+  "product_id": "demo-agent",
+  "capability_id": "demo.echo@v1",
+  "name": "Demo echo",
+  "description": "Echoes the payload so a live invoke can be proven.",
+  "price_per_call_usd": 0.001,
+  "input_schema": {"type": "object"},
+  "output_schema": {"type": "object"},
+  "publisher_id": "local",
+  "provider_pubkey": ""
+}</textarea>
+    </label>
+    <label><span data-i="handler_l">Optional admitted handler (Python handle(payload))</span>
+      <textarea id="handler" rows="6" placeholder="leave empty for the sealed stub"></textarea>
+    </label>
+    <label class="check"><input id="announce" type="checkbox"/> <span data-i="announce_l">Also knock on the Hub (does not grant trust)</span></label>
+    <div class="row">
+      <button id="deploy" type="button" data-i="deploy_b">Deploy agent</button>
+      <button id="refresh" type="button" class="ghost" data-i="refresh_b">Refresh roster</button>
+    </div>
+    <pre id="out">Ready.</pre>
+  </section>
+  <section class="panel">
+    <h1 data-i="run_h">Running on this host</h1>
+    <p class="hint" data-i="run_p">Public roster — no token. Empty means nothing is hosted here, not “the market is empty”.</p>
+    <div id="roster"></div>
+  </section>
+  <section class="panel">
+    <h1 data-i="ws_h">Operator workshop · 90 min</h1>
+    <p class="hint" data-i="ws_p">Not a course. No Colab. No certificate. This /ui/ is the desk. The agent URL is not in the capability JSON — after deploy it appears in the JSON under the buttons and on the roster as {public_base}/t/{slug}.</p>
+    <ol class="ws-steps">
+      <li data-i="ws_1">Start your own host. Paste this process’s token. Leave announce unchecked.</li>
+      <li data-i="ws_2">Deploy demo-echo. Confirm /health and a host invoke with no 402.</li>
+      <li data-i="ws_3">Look-only: Hub unpaid json.canonical@v1 → 402 payTo = seller; direct hestia.modelmarket.dev → handler.</li>
+      <li data-i="ws_4">Do not announce a laptop at modelmarket.dev. Stop the agent. Empty roster ≠ empty catalogue.</li>
+    </ol>
+    <a id="ws-doc" href="https://github.com/alexar76/hestia/blob/main/docs/workshop.md" target="_blank" rel="noopener" data-i="ws_doc">Full runbook →</a>
+  </section>
+</main>
+<script src="/ui/assets/console.js"></script>
+</body>
+</html>
