@@ -1,0 +1,18 @@
+.venv
+.git
+.github
+.pytest_cache
+__pycache__
+*.pyc
+coverage.xml
+dist
+.env
+data
+.coverage
+tests
+# Architecture / user-guide stay out of the runtime image. Landing is served
+# at `/`. README.md + LICENSE stay in — Dockerfile COPY and hatchling need
+# them. Do not ignore *.md.
+docs/**
+!docs/landing/
+!docs/landing/**

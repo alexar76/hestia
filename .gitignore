@@ -1,0 +1,11 @@
+.venv/
+.aimarket/
+.coverage
+.pytest_cache/
+__pycache__/
+*.py[cod]
+coverage.xml
+dist/
+.env
+data/
+*.egg-info/
