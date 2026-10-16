@@ -284,7 +284,7 @@ def test_a_stop_during_announce_is_not_undone(tmp_path, monkeypatch) -> None:
         store.set_status("echo", "stopped")  # a stop lands while the hub is slow
         return {"ok": True}
 
-    monkeypatch.setattr("hestia.app.hub_announce", slow_announce)
+    monkeypatch.setattr("hestia.app_routes.tenants.hub_announce", slow_announce)
     res = api.post("/v1/tenants/echo/announce", headers=auth(api))
     assert res.status_code == 409
     assert store.get("echo").status == "stopped"
@@ -416,7 +416,7 @@ def test_announce_runs_after_the_row_is_written_and_outside_the_lock(tmp_path, m
         assert finish.wait(10)
         return {"ok": True}
 
-    monkeypatch.setattr("hestia.app.hub_announce", slow_hub)
+    monkeypatch.setattr("hestia.app_routes.tenants.hub_announce", slow_hub)
     payload = deploy_payload("echo")
     payload["announce"] = True
     out: dict = {}
@@ -579,15 +579,15 @@ def test_the_edge_rechecks_the_row_before_it_connects(tmp_path, monkeypatch) -> 
     api = client(tmp_path)
     api.post("/v1/tenants", json=deploy_payload("echo"), headers=auth(api))
     store = api.app.state.store
-    import hestia.app as app_module
+    import hestia.app_routes.edge as edge_module
 
-    original = app_module.edge_forward_headers
+    original = edge_module.edge_forward_headers
 
     def flip(headers):
         store.set_status("echo", "stopped")  # a stop lands while the body is read
         return original(headers)
 
-    monkeypatch.setattr("hestia.app.edge_forward_headers", flip)
+    monkeypatch.setattr("hestia.app_routes.edge.edge_forward_headers", flip)
     assert api.get("/t/echo/health").status_code == 503
 
 
@@ -595,7 +595,7 @@ def test_a_manual_announce_clears_an_old_announce_error(tmp_path, monkeypatch) -
     api = client(tmp_path, hub_url="http://hub.invalid")
     api.post("/v1/tenants", json=deploy_payload("echo"), headers=auth(api))
     api.app.state.store.record_error("echo", "hub said no")
-    monkeypatch.setattr("hestia.app.hub_announce", lambda **_k: {"ok": True})
+    monkeypatch.setattr("hestia.app_routes.tenants.hub_announce", lambda **_k: {"ok": True})
     assert api.post("/v1/tenants/echo/announce", headers=auth(api)).status_code == 200
     assert api.app.state.store.get("echo").last_error == ""
 

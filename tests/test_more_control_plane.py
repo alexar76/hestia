@@ -62,7 +62,7 @@ def test_redeploy_running_tenant(tmp_path) -> None:
 
 def test_announce_with_hub(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "hestia.app.hub_announce",
+        "hestia.app_routes.tenants.hub_announce",
         lambda **_kwargs: {"ok": True, "note": "observed"},
     )
     api = client(tmp_path, hub_url="http://127.0.0.1:1")
@@ -82,7 +82,7 @@ def test_announce_http_failure_keeps_tenant(tmp_path, monkeypatch) -> None:
     def boom(**_kwargs):
         raise AnnounceError("Hub announce failed")
 
-    monkeypatch.setattr("hestia.app.hub_announce", boom)
+    monkeypatch.setattr("hestia.app_routes.tenants.hub_announce", boom)
     api = client(tmp_path, hub_url="http://127.0.0.1:1")
     payload = deploy_payload()
     payload["announce"] = True

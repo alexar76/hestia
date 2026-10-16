@@ -456,7 +456,7 @@ def test_the_worker_rlimits_are_the_published_ones(monkeypatch) -> None:
 def test_an_unpaid_direct_call_is_refused_and_nothing_runs(tmp_path, monkeypatch) -> None:
     api = compute_client(tmp_path, "pure")
     ran = []
-    monkeypatch.setattr("hestia.app.run_replicas", lambda *a, **k: ran.append(a) or [])
+    monkeypatch.setattr("hestia.app_routes.invoke.run_replicas", lambda *a, **k: ran.append(a) or [])
     res = call(api, COMPUTE_VERIFY, "pure", {}, headers={})
     # A hub-key-only hearth has no direct door at all.
     assert res.status_code == 401
@@ -699,7 +699,7 @@ def test_a_platform_failure_gives_the_payment_back(tmp_path, monkeypatch) -> Non
     api = paid_client(tmp_path, "pure")
     paid_directly(monkeypatch)
     monkeypatch.setattr(
-        "hestia.app.run_replicas",
+        "hestia.app_routes.invoke.run_replicas",
         lambda *a, **k: [Replica(index=0, hash_seed=1, error="spawn failed")],
     )
     res = call(api, COMPUTE_VERIFY, "pure", {}, headers=direct("0x" + "2" * 64))
@@ -714,7 +714,7 @@ def test_an_exception_while_running_gives_the_payment_back(tmp_path, monkeypatch
     def _explode(*_a, **_k):
         raise RuntimeError("fork failed")
 
-    monkeypatch.setattr("hestia.app.run_replicas", _explode)
+    monkeypatch.setattr("hestia.app_routes.invoke.run_replicas", _explode)
     with pytest.raises(RuntimeError):
         call(api, COMPUTE_VERIFY, "pure", {}, headers=direct("0x" + "5" * 64))
     assert api.app.state.store.payment_count(COMPUTE_VERIFY) == 0
