@@ -16,10 +16,10 @@ from hestia import __version__
 from hestia.compute import (
     COMPUTE_RUN,
     COMPUTE_VERIFY,
-    Limits,
     METHODS,
-    published_functions,
     REPLICAS,
+    Limits,
+    published_functions,
     runtime_facts,
 )
 from hestia.config import Settings

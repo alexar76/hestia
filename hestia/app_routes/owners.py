@@ -14,8 +14,9 @@ from starlette.concurrency import run_in_threadpool
 from hestia import domains
 from hestia.config import Settings
 from hestia.hub_billing import ACCOUNT_RE
-from hestia.names import claim_domain, domains_of, NameTaken, reverse as reverse_domain
-from hestia.owners import canonical_owner_key, has_owner_headers, OwnerProofError
+from hestia.names import NameTaken, claim_domain, domains_of
+from hestia.names import reverse as reverse_domain
+from hestia.owners import OwnerProofError, canonical_owner_key, has_owner_headers
 from hestia.store import TenantStore
 
 

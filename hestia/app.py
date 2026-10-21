@@ -3,113 +3,58 @@
 from __future__ import annotations
 
 import hmac
-import json
 import logging
 import secrets
 import threading
 import time
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-import httpx
+import httpx  # noqa: F401 - tests patch hestia.app.httpx.AsyncClient (the edge proxy client)
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from starlette.concurrency import run_in_threadpool
 
-from hestia import __version__, domains
+from hestia import __version__
+from hestia.app_routes import admin as _admin_routes
+from hestia.app_routes import discovery as _discovery_routes
+from hestia.app_routes import edge as _edge_routes
+from hestia.app_routes import invoke as _invoke_routes
+from hestia.app_routes import owners as _owners_routes
+from hestia.app_routes import tenants as _tenants_routes
+from hestia.app_routes.edge import edge_forward_headers  # noqa: F401 - re-exported
 from hestia.compute import (
     COMPUTE_CAPS,
-    COMPUTE_RUN,
-    COMPUTE_VERIFY,
-    METHODS,
-    OK,
-    PLATFORM_FAILURE,
-    REPLICAS,
-    ComputeRefused,
     Limits,
     ReplicaSlots,
-    build_receipt,
-    find_function,
-    hub_key_matches,
-    judge,
-    parse_request,
-    published_functions,
-    refusal_body,
-    run_replicas,
-    runtime_facts,
     settings_problem,
 )
 from hestia.compute import price_of as compute_price_of
 from hestia.config import Settings
-from hestia.hub import AnnounceError
-from hestia.hub import announce as hub_announce
-from hestia.hub_billing import ACCOUNT_RE, billing_block, hub_for_key
 from hestia.limits import BodyLimitMiddleware
-from hestia.listing import HELD, LISTED
-from hestia.listing import review as review_listing
-from hestia.models import CapabilitySpec, DeployRequest, TemplateSource
-from hestia.names import (
-    CLOSED,
-    DOMAIN,
-    FAMILY,
-    KINDS,
-    OPERATOR,
-    PREFIX,
-    PUBLISHER,
-    RESERVABLE,
-    NameTaken,
-    claim_domain,
-    claims_for,
-    domains_of,
-    holder_of,
-    key_for,
-    seed_prefixes,
-    users_of,
-)
+from hestia.listing import LISTED
+from hestia.models import CapabilitySpec
 from hestia.names import backfill as backfill_names
-from hestia.names import claim as claim_names
-from hestia.names import reverse as reverse_domain
+from hestia.names import (
+    holder_of,
+    seed_prefixes,
+)
 from hestia.owners import (
     OwnerProofError,
     canonical_owner_key,
     has_owner_headers,
     verify_owner_request,
 )
-from hestia.payments import (
-    PaymentError,
-    PaymentTerms,
-    is_address,
-    is_nonce,
-    is_secret,
-    mint_secret,
-    nonce_for_secret,
-    opens,
-    to_units,
-    verify_transfer,
-)
 from hestia.policy import profile_from_settings
 from hestia.runtime.docker import DockerRuntime
 from hestia.runtime.stub import StubRuntime, tenant_image_ref
-from hestia.runtime.wasm import WasmRuntime, is_wasm
-from hestia.scan import HandlerDenied, admit_handler, lint_wasm_handler
+from hestia.runtime.wasm import WasmRuntime
 from hestia.signing import ProviderSigner
 from hestia.store import LIVE, QUARANTINED, TenantRow, TenantStore
 from hestia.tenant_stub import call_timeout_s
-from hestia.themis import AdmissionDenied
-from hestia.themis import admit as themis_admit
-
-from hestia.app_routes import discovery as _discovery_routes
-from hestia.app_routes import admin as _admin_routes
-from hestia.app_routes import owners as _owners_routes
-from hestia.app_routes import tenants as _tenants_routes
-from hestia.app_routes import invoke as _invoke_routes
-from hestia.app_routes import edge as _edge_routes
-from hestia.app_routes.edge import edge_forward_headers  # noqa: F401 - re-exported
 
 logger = logging.getLogger(__name__)
 

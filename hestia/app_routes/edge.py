@@ -13,7 +13,6 @@ from hestia.names import holder_of
 from hestia.runtime.wasm import is_wasm
 from hestia.store import TenantStore
 
-
 _EDGE_FORWARD_HEADERS = frozenset({"content-type", "accept"})
 
 

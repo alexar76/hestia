@@ -16,15 +16,15 @@ from hestia.names import (
     CLOSED,
     DOMAIN,
     FAMILY,
-    key_for,
     KINDS,
     OPERATOR,
     PREFIX,
     PUBLISHER,
     RESERVABLE,
+    key_for,
     users_of,
 )
-from hestia.owners import canonical_owner_key, OwnerProofError
+from hestia.owners import OwnerProofError, canonical_owner_key
 from hestia.runtime.docker import DockerRuntime
 from hestia.store import QUARANTINED, TenantStore
 

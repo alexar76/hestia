@@ -17,39 +17,41 @@ from fastapi.responses import JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from hestia.compute import (
-    build_receipt,
     COMPUTE_CAPS,
+    OK,
+    PLATFORM_FAILURE,
+    REPLICAS,
     ComputeRefused,
+    Limits,
+    build_receipt,
     find_function,
     hub_key_matches,
     judge,
-    Limits,
-    OK,
     parse_request,
-    PLATFORM_FAILURE,
-    price_of as compute_price_of,
     refusal_body,
-    REPLICAS,
     run_replicas,
+)
+from hestia.compute import (
+    price_of as compute_price_of,
 )
 from hestia.config import Settings
 from hestia.hub_billing import billing_block, hub_for_key
 from hestia.models import DeployRequest
-from hestia.owners import canonical_owner_key, OwnerProofError
+from hestia.owners import OwnerProofError, canonical_owner_key
 from hestia.payments import (
+    PaymentError,
+    PaymentTerms,
     is_address,
     is_nonce,
     is_secret,
     mint_secret,
     nonce_for_secret,
     opens,
-    PaymentError,
-    PaymentTerms,
     to_units,
     verify_transfer,
 )
 from hestia.runtime.stub import StubRuntime
-from hestia.runtime.wasm import is_wasm, WasmRuntime
+from hestia.runtime.wasm import WasmRuntime, is_wasm
 from hestia.signing import ProviderSigner
 from hestia.store import TenantRow, TenantStore
 
