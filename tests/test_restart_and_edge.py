@@ -225,3 +225,35 @@ def test_a_tenant_that_will_not_start_does_not_stay_on_the_roster(tmp_path, monk
     assert res.status_code == 502
     assert api.app.state.store.get("flaky").status == "stopped"
     assert api.get("/v1/hearth").json()["tenants"] == []
+
+
+def _owned_by(api, slug: str, *, may_run_code: bool, admitted_by: str, label: str) -> None:
+    key = api.app.state.store.get(slug).owner_pubkey
+    api.app.state.store.admit_owner(pubkey=key, label=label, max_tenants=3,
+                                    may_run_code=may_run_code, admitted_by=admitted_by)
+
+
+def test_open_signup_code_does_not_come_back_under_the_stub(tmp_path) -> None:
+    """GCVE-110-PYPI-2026-020712: code an open-signup key ran in the wasm sandbox must not
+    restart as a plain child process when the hearth now runs the stub runtime."""
+    api = client(tmp_path)
+    api.post("/v1/tenants", json=deploy_payload("stranger", HANDLER), headers=auth(api))
+    _owned_by(api, "stranger", may_run_code=False, admitted_by="open", label="open signup")
+    api.app.state.stub._stop_all()
+
+    after = _restart(tmp_path)
+    row = after.app.state.store.get("stranger")
+    assert row.status == "stopped"
+    assert "may not run code" in row.last_error
+    assert after.post("/t/stranger/invoke", json={}).status_code == 404
+
+
+def test_code_the_operator_granted_comes_back(tmp_path) -> None:
+    api = client(tmp_path)
+    api.post("/v1/tenants", json=deploy_payload("partner", HANDLER), headers=auth(api))
+    _owned_by(api, "partner", may_run_code=True, admitted_by="operator", label="partner")
+    api.app.state.stub._stop_all()
+
+    after = _restart(tmp_path)
+    assert after.app.state.store.get("partner").status == "running"
+    assert after.post("/t/partner/invoke", json={}).status_code == 200

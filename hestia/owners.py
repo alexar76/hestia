@@ -103,6 +103,29 @@ def canonical_owner_key(value: str) -> str:
     return base64.b64encode(raw).decode()
 
 
+def code_right(owner: Mapping | None, *, runtime: str, open_owner_code: bool) -> bool:
+    """May this owner's handler code run on this hearth, as it is configured now?
+
+    One rule for every place that decides it: an owner's deploy, the operator deploying for an
+    owner, a restart, and an operator's update of the owner (Vulnetix GCVE-110-PYPI-2026-020712
+    and an independent review of its fix):
+
+    - a suspended owner runs none;
+    - an open-signup key ("open" lane) runs code only in the WebAssembly sandbox, whatever its
+      stored right says, so no update or migration can carry a right over to the stub runtime;
+    - otherwise the operator's stored grant, or HESTIA_OPEN_OWNER_CODE (wasm only).
+    `owner` None is a key that is not an owner at all: the operator's own deploy.
+    """
+    if owner is None:
+        return True
+    if owner.get("status") != "active":
+        return False
+    open_lane = (runtime == "wasm") and bool(open_owner_code)
+    if owner.get("admitted_by") == "open":
+        return runtime == "wasm" and (open_lane or bool(owner.get("may_run_code")))
+    return bool(owner.get("may_run_code")) or open_lane
+
+
 def is_ownable_key(value: str) -> bool:
     try:
         canonical_owner_key(value)

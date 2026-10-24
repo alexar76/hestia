@@ -205,6 +205,14 @@ MIGRATION_009_OWNER_ADMISSION: tuple[str, ...] = (
     "WHERE status = 'active' AND label <> 'open signup'",
 )
 
+# A self-admitted key's code right is not stored any more: HESTIA_OPEN_OWNER_CODE grants it live
+# (wasm only). Rows a self-admission wrote while that setting was on carried may_run_code = 1,
+# which outlived a switch to the stub runtime (Vulnetix GCVE-110-PYPI-2026-020712). The
+# operator's own grants (POST /v1/owners) are left as they are.
+MIGRATION_010_OPEN_CODE_RIGHT: tuple[str, ...] = (
+    "UPDATE owners SET may_run_code = 0 WHERE admitted_by = 'open' AND label = 'open signup'",
+)
+
 # (version, name, statements). statements have no IF NOT EXISTS on product tables.
 # statements is a tuple for every backend, or a dict keyed by backend_type.
 MIGRATIONS: list[tuple[int, str, tuple[str, ...] | dict[str, tuple[str, ...]]]] = [
@@ -217,6 +225,7 @@ MIGRATIONS: list[tuple[int, str, tuple[str, ...] | dict[str, tuple[str, ...]]]] 
     (7, "007_listing", MIGRATION_007_LISTING),
     (8, "008_names", MIGRATION_008_NAMES),
     (9, "009_owner_admission", MIGRATION_009_OWNER_ADMISSION),
+    (10, "010_open_code_right", MIGRATION_010_OPEN_CODE_RIGHT),
 ]
 
 

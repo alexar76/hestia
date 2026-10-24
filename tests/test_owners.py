@@ -323,3 +323,58 @@ def test_the_public_roster_says_whose_agent_each_is(tmp_path) -> None:
     owners = {t["slug"]: t["owner"] for t in roster["tenants"]}
     assert owners == {"reference": {"kind": "operator"}, "alice-one": {"kind": "owner", "label": "Alice Labs"}}
     assert (roster["running"], roster["operator_tenants"], roster["owner_tenants"]) == (2, 1, 1)
+
+
+# ── the code right under the stub runtime (GCVE-110-PYPI-2026-020712, independent review) ──
+
+def test_an_update_changes_only_what_it_names(tmp_path) -> None:
+    """Raising a self-admitted key's quota used to store a code right, blank its label, and
+    reinstate it if suspended: every field not in the payload fell back to a default."""
+    api = client(tmp_path, open_owners=True)
+    stranger = Owner()
+    assert stranger.deploy(api, "stranger-stub").status_code == 200
+    after = admit(api, stranger, max_tenants=5)
+    assert (after["may_run_code"], after["label"], after["admitted_by"], after["max_tenants"]) == (
+        0, "open signup", "open", 5)
+    admit(api, stranger, status="suspended")
+    assert admit(api, stranger, max_tenants=4)["status"] == "suspended"
+
+
+def test_an_open_signup_key_runs_no_code_under_the_stub_even_with_a_stored_right(tmp_path) -> None:
+    api = client(tmp_path, open_owners=True)
+    stranger = Owner()
+    assert stranger.deploy(api, "stranger-stub").status_code == 200
+    assert admit(api, stranger, may_run_code=True)["admitted_by"] == "open"
+    res = stranger.deploy(api, "stranger-code", handler=CODE, cap_id="stranger.code@v1")
+    assert res.status_code == 403 and "may not run code" in res.json()["detail"]
+
+
+def test_the_operator_cannot_deploy_code_for_an_open_signup_key_under_the_stub(tmp_path) -> None:
+    """It used to be accepted and then silently stopped by the next restart."""
+    api = client(tmp_path, open_owners=True)
+    stranger = Owner()
+    assert stranger.deploy(api, "stranger-stub").status_code == 200
+    payload = {**deploy_payload("for-stranger", CODE), "owner_pubkey": stranger.pub}
+    res = api.post("/v1/tenants", json=payload, headers=auth(api))
+    assert res.status_code == 403 and "wasm sandbox" in res.json()["detail"]
+    sealed = {**deploy_payload("for-stranger"), "owner_pubkey": stranger.pub}
+    sealed["capability"] = {**sealed["capability"], "capability_id": "stranger.sealed@v1"}
+    assert api.post("/v1/tenants", json=sealed, headers=auth(api)).status_code == 200
+
+
+@pytest.mark.parametrize("change", [{"may_run_code": False}, {"status": "suspended"},
+                                    {"admitted_by": "open"}])
+def test_taking_the_code_right_stops_running_handlers_now(tmp_path, change) -> None:
+    """Under the stub a handler is a plain child process: it stops with the right, not at
+    the next restart."""
+    api = client(tmp_path)
+    alice = Owner()
+    admit(api, alice)
+    assert alice.deploy(api, "alice-code", handler=CODE).status_code == 200
+    assert alice.deploy(api, "alice-sealed", cap_id="alice.sealed@v1").status_code == 200
+    res = api.post("/v1/owners", json={"pubkey": alice.pub, **change}, headers=auth(api))
+    assert res.status_code == 200 and res.json()["stopped"] == ["alice-code"]
+    row = api.app.state.store.get("alice-code")
+    assert row.status == "stopped" and "may no longer run code" in row.last_error
+    assert api.app.state.store.get("alice-sealed").status == "running"
+    assert api.post("/t/alice-code/invoke", json={"n": 2}).status_code == 404

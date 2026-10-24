@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlsplit
 
 import httpx  # noqa: F401 - tests patch hestia.app.httpx.AsyncClient (the edge proxy client)
@@ -45,6 +45,7 @@ from hestia.names import (
 from hestia.owners import (
     OwnerProofError,
     canonical_owner_key,
+    code_right,
     has_owner_headers,
     verify_owner_request,
 )
@@ -112,7 +113,10 @@ CAPS = (
 )
 
 
-def restore_stub_tenants(store: TenantStore, stub: StubRuntime, profile) -> dict[str, int]:
+def restore_stub_tenants(
+    store: TenantStore, stub: StubRuntime, profile,
+    code_allowed: Callable[[TenantRow], bool] | None = None,
+) -> dict[str, int]:
     """Start again, at boot, the stub tenants the ledger says were running.
 
     A stub tenant is a child of the control-plane process, so a restart kills
@@ -129,17 +133,32 @@ def restore_stub_tenants(store: TenantStore, stub: StubRuntime, profile) -> dict
     Restoring is per-tenant and best-effort. A tenant that will not come back is
     marked stopped with the reason: the one thing that must never happen is a row
     left `running` while pointing at a port this process does not own.
+
+    A handler is started again only if its owner may run code on THIS hearth now
+    (`code_allowed`). Code an open-signup key deployed into the WebAssembly sandbox
+    would otherwise come back as a plain child process after a switch to the stub
+    runtime (Vulnetix GCVE-110-PYPI-2026-020712); such a row is stopped with the reason.
     """
     restored = 0
     failed = 0
     for row in store.list_running():
         if row.source_kind == "image":
             continue  # a container outlives the control plane; leave it alone
+        handler = stub.stored_handler(row.slug)
+        if handler.strip() and code_allowed is not None and not code_allowed(row):
+            store.set_status(
+                row.slug, "stopped",
+                error="not restored: its owner may not run code on this hearth now "
+                "(suspended, an open-signup key outside the wasm sandbox, or no code right)",
+            )
+            failed += 1
+            logger.warning("tenant %s not restored: owner may not run code here", row.slug)
+            continue
         try:
             running = stub.start(
                 slug=row.slug,
                 capability=CapabilitySpec.model_validate(row.capability),
-                handler=stub.stored_handler(row.slug),
+                handler=handler,
                 image_digest="",
                 profile=profile,
                 env={},
@@ -352,7 +371,16 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     # by a previous process names a port the OS has since handed out, and the
     # public unauthenticated /t/{slug} edge would then proxy whoever bound it.
     # HESTIA_REPLICAS>1 is refused: API workers cannot each spawn a farm.
-    restore_stub_tenants(store, stub, profile)
+    def code_allowed(row: TenantRow) -> bool:
+        # Under wasm every handler runs in the sandbox runner, so a restart brings them all back
+        # as before. Under the stub a handler is a plain child process: only an owner who may run
+        # code here now (hestia.owners.code_right) gets one.
+        if settings.runtime == "wasm":
+            return True
+        return code_right(store.get_owner(row.owner_pubkey), runtime=settings.runtime,
+                          open_owner_code=settings.open_owner_code)
+
+    restore_stub_tenants(store, stub, profile, code_allowed)
     # Docker containers outlive the plane, so image rows are checked against the
     # engine: verified, moved onto a private network, or quarantined. Only a
     # docker hearth may call docker at all — the host-socket opt-in is checked
@@ -448,8 +476,14 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         if not store.spend_owner_nonce(proof.pubkey, proof.nonce, keep_s=2 * settings.owner_skew_s):
             raise HTTPException(status_code=409, detail="owner nonce already used")
         if owner is None:
-            return Principal("owner", proof.pubkey, admitted=False, may_run_code=False)
-        return Principal("owner", proof.pubkey, may_run_code=bool(owner["may_run_code"]))
+            # Not admitted yet: it would be admitted as an open-signup key on its first deploy.
+            unadmitted = {"status": "active", "admitted_by": "open", "may_run_code": 0}
+            return Principal("owner", proof.pubkey, admitted=False,
+                             may_run_code=code_right(unadmitted, runtime=settings.runtime,
+                                                     open_owner_code=settings.open_owner_code))
+        return Principal("owner", proof.pubkey,
+                         may_run_code=code_right(owner, runtime=settings.runtime,
+                                                 open_owner_code=settings.open_owner_code))
 
     def _owns(principal: Principal, row: TenantRow) -> bool:
         if principal.kind == "operator":
@@ -566,6 +600,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         lifecycle=lifecycle,
         settings=settings,
         store=store,
+        stub=stub,
     )
 
     # Tenants: deploy, list, stop, announce.

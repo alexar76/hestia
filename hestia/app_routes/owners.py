@@ -16,7 +16,7 @@ from hestia.config import Settings
 from hestia.hub_billing import ACCOUNT_RE
 from hestia.names import NameTaken, claim_domain, domains_of
 from hestia.names import reverse as reverse_domain
-from hestia.owners import OwnerProofError, canonical_owner_key, has_owner_headers
+from hestia.owners import OwnerProofError, canonical_owner_key, code_right, has_owner_headers
 from hestia.store import TenantStore
 
 
@@ -29,6 +29,7 @@ def register(
     lifecycle: Callable[..., Any],
     settings: Settings,
     store: TenantStore,
+    stub: Any = None,
 ) -> None:
     """Attach the owner routes to ``app``."""
     @app.post("/v1/owners")
@@ -42,11 +43,17 @@ def register(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="body is not JSON") from exc
-        status = str(payload.get("status") or "active")
+        # An update changes only what it names. Defaults here used to rewrite the rest: raising
+        # a self-admitted key's quota stored a code right (may_run_code defaulted to True) and
+        # blanked its label, which a later switch to the stub runtime honoured (independent
+        # review of GCVE-110-PYPI-2026-020712); it also reinstated a suspended key.
+        known = await run_in_threadpool(store.get_owner, pubkey) or {}
+        status = str(payload.get("status") or known.get("status") or "active")
         if status not in {"active", "suspended"}:
             raise HTTPException(status_code=400, detail="status must be active or suspended")
         try:
-            max_tenants = int(payload.get("max_tenants") or settings.owner_max_tenants)
+            max_tenants = int(payload.get("max_tenants") or known.get("max_tenants")
+                              or settings.owner_max_tenants)
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail="max_tenants must be an integer") from exc
         if not 1 <= max_tenants <= settings.max_tenants:
@@ -62,14 +69,44 @@ def register(
 
         def write() -> dict[str, Any]:
             lane = admitted_by or (None if store.get_owner(pubkey) else "operator")
+            label = payload["label"] if "label" in payload else known.get("label", "")
+            may_run_code = (payload["may_run_code"] if "may_run_code" in payload
+                             else known.get("may_run_code", True))
             return store.admit_owner(
-                pubkey=pubkey, label=str(payload.get("label") or "")[:120], status=status,
-                max_tenants=max_tenants, may_run_code=bool(payload.get("may_run_code", True)),
-                admitted_by=lane,
+                pubkey=pubkey, label=str(label or "")[:120], status=status,
+                max_tenants=max_tenants, may_run_code=bool(may_run_code), admitted_by=lane,
             )
 
         owner = await run_in_threadpool(write)
-        return {"ok": True, "owner": owner}
+        stopped = await run_in_threadpool(_stop_code_it_may_not_run, owner)
+        body: dict[str, Any] = {"ok": True, "owner": owner}
+        if stopped:
+            body["stopped"] = stopped
+        return body
+
+    def _stop_code_it_may_not_run(owner: dict[str, Any]) -> list[str]:
+        """Under the stub a handler is a plain child process; when an update takes the owner's
+        code right away, its running handlers stop now rather than at the next restart."""
+        if stub is None or settings.runtime == "wasm" or code_right(
+                owner, runtime=settings.runtime, open_owner_code=settings.open_owner_code):
+            return []
+        from hestia.app import tenant_handle  # app.py imports this module
+
+        stopped = []
+        with lifecycle():
+            for row in store.list_running():
+                if (row.owner_pubkey != owner["pubkey"] or row.source_kind == "image"
+                        or not stub.stored_handler(row.slug).strip()):
+                    continue
+                try:
+                    stub.stop(tenant_handle(row.source_kind, row.slug))
+                except (RuntimeError, OSError) as exc:
+                    store.set_status(row.slug, row.status, error=f"stop failed: {exc}"[:500])
+                    continue
+                store.set_status(row.slug, "stopped",
+                                 error="stopped: its owner may no longer run code on this hearth")
+                stopped.append(row.slug)
+        return stopped
 
     @app.get("/v1/owners")
     def list_owners(request: Request) -> dict[str, Any]:
@@ -91,7 +128,10 @@ def register(
             "admitted": owner is not None,
             "status": (owner or {}).get("status", "not admitted"),
             "max_tenants": int((owner or {}).get("max_tenants") or settings.owner_max_tenants),
-            "may_run_code": bool((owner or {}).get("may_run_code", 0)),
+            # What the deploy gate applies: the operator's grant, or the live open-code lane.
+            "may_run_code": code_right(
+                owner or {"status": "active", "admitted_by": "open", "may_run_code": 0},
+                runtime=settings.runtime, open_owner_code=settings.open_owner_code),
             # "open": this owner's agents share the open sandbox lane (a 503 means it was full).
             "admitted_by": (owner or {}).get("admitted_by", ""),
             "tenants": mine,

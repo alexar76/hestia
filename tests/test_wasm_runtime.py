@@ -357,9 +357,12 @@ def test_strangers_share_one_lane_and_the_operator_keeps_a_slot(tmp_path, script
                   headers=auth(c)).status_code == 200
     Stranger().deploy(c, "alpha-lane", "alpha.lane@v1")
     Stranger().deploy(c, "omega-check", "omega.check@v1")
-    owners = {o["label"]: o["admitted_by"] for o in
-              c.get("/v1/owners", headers=auth(c)).json()["owners"]}
+    listed = c.get("/v1/owners", headers=auth(c)).json()["owners"]
+    owners = {o["label"]: o["admitted_by"] for o in listed}
     assert owners == {"open signup": "open"}
+    # The strangers ran code through the live HESTIA_OPEN_OWNER_CODE lane; none of them holds
+    # a stored right that would outlive it (GCVE-110-PYPI-2026-020712).
+    assert {o["may_run_code"] for o in listed} == {0}
     thread, done = hold(c, sandbox, "alpha-lane")
     try:
         # Another stranger, with another key, finds the one open slot taken...

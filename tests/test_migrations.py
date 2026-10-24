@@ -202,6 +202,11 @@ def test_owner_admission_backfill(tmp_path, monkeypatch) -> None:
         rows = {r["pubkey"]: r["admitted_by"] for r in
                 backend.execute("SELECT pubkey, admitted_by FROM owners")}
         assert rows == {"k-partner": "operator", "k-stranger": "open", "k-retired": "open"}
+        # Revision 010: a self-admission's stored code right is dropped (it is granted live by
+        # HESTIA_OPEN_OWNER_CODE now); the operator's grants stay.
+        code = {r["pubkey"]: r["may_run_code"] for r in
+                backend.execute("SELECT pubkey, may_run_code FROM owners")}
+        assert code == {"k-partner": 1, "k-stranger": 0, "k-retired": 1}
         backend.execute_write(
             "INSERT INTO owners (pubkey, label, status, max_tenants, may_run_code, created_at, "
             "updated_at) VALUES ('k-new', '', 'active', 3, 1, 0, 0)", ())

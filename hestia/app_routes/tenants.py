@@ -32,7 +32,7 @@ from hestia.names import (
 from hestia.names import (
     reverse as reverse_domain,
 )
-from hestia.owners import OwnerProofError, canonical_owner_key
+from hestia.owners import OwnerProofError, canonical_owner_key, code_right
 from hestia.runtime.docker import DockerRuntime
 from hestia.runtime.stub import StubRuntime
 from hestia.runtime.wasm import WasmRuntime
@@ -120,18 +120,21 @@ def register(
             raise HTTPException(status_code=403,
                                 detail="this slug is reserved for the operator's compute functions")
         has_code = isinstance(body.source, TemplateSource) and bool(body.source.handler.strip())
-        # HESTIA_OPEN_OWNER_CODE (wasm only): every owner's code runs in the WebAssembly
-        # sandbox, so the right to run it no longer has to be granted key by key.
-        if has_code and not (principal.may_run_code or settings.open_owner_code):
+        # hestia.owners.code_right, computed into the principal: the operator's grant, or
+        # HESTIA_OPEN_OWNER_CODE (wasm only); an open-signup key runs code only in the sandbox.
+        if has_code and not principal.may_run_code:
             raise HTTPException(
                 status_code=403,
                 detail="this owner may not run code on this hearth: deploy a pinned image or a "
                 "sealed stub, or ask the operator to admit the key with code rights",
             )
         if not principal.admitted:
+            # Never a stored code right: HESTIA_OPEN_OWNER_CODE grants it live while it is on
+            # (wasm only). Storing it outlived a switch to the stub runtime, where the same
+            # key's code would run unsandboxed (Vulnetix GCVE-110-PYPI-2026-020712).
             store.admit_owner(pubkey=principal.owner, label="open signup",
                               max_tenants=settings.owner_max_tenants,
-                              may_run_code=settings.open_owner_code, admitted_by="open")
+                              may_run_code=False, admitted_by="open")
         owner = store.get_owner(principal.owner) or {}
         quota = int(owner.get("max_tenants") or settings.owner_max_tenants)
         if store.owner_tenant_count(principal.owner, excluding=body.slug) >= quota:
@@ -172,6 +175,20 @@ def register(
             # The operator deploying for an owner: stored in the owner's canonical spelling, or
             # the owner's own requests, its quota and its names would not see it as theirs.
             body = body.model_copy(update={"owner_pubkey": holder_of(body.owner_pubkey)})
+            has_code = isinstance(body.source, TemplateSource) and bool(body.source.handler.strip())
+            owner = store.get_owner(body.owner_pubkey)
+            if (has_code and settings.runtime != "wasm" and owner is not None
+                    and not code_right(owner, runtime=settings.runtime,
+                                       open_owner_code=settings.open_owner_code)):
+                # A restart would not bring it back (app.restore_stub_tenants), so it is refused
+                # now rather than accepted and silently stopped later.
+                raise HTTPException(
+                    status_code=403,
+                    detail="this owner may not run code on this hearth now (suspended, an "
+                    "open-signup key, which runs code only in the wasm sandbox, or no code "
+                    "right): admit it with POST /v1/owners (admitted_by=operator, "
+                    "may_run_code=true, status=active) or deploy a sealed stub",
+                )
         existing = store.get(body.slug)
         occupies = existing is not None and existing.status in LIVE
         if store.count_live() >= settings.max_tenants and not occupies:
