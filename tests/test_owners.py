@@ -370,7 +370,9 @@ def test_taking_the_code_right_stops_running_handlers_now(tmp_path, change) -> N
     api = client(tmp_path)
     alice = Owner()
     admit(api, alice)
-    assert alice.deploy(api, "alice-code", handler=CODE).status_code == 200
+    # Own capability ids: on Postgres the last test's rows are what the next test file finds,
+    # and demo.echo held by alice made test_store's operator deploy of it a 403.
+    assert alice.deploy(api, "alice-code", handler=CODE, cap_id="alice.code@v1").status_code == 200
     assert alice.deploy(api, "alice-sealed", cap_id="alice.sealed@v1").status_code == 200
     res = api.post("/v1/owners", json={"pubkey": alice.pub, **change}, headers=auth(api))
     assert res.status_code == 200 and res.json()["stopped"] == ["alice-code"]

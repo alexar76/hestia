@@ -13,6 +13,29 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 
+# SQLite's extended result codes for a duplicate key (UNIQUE index, PRIMARY KEY).
+_SQLITE_DUPLICATE = frozenset({2067, 1555})
+# Postgres SQLSTATE unique_violation.
+_PG_UNIQUE_VIOLATION = "23505"
+
+
+def is_unique_violation(exc: BaseException) -> bool:
+    """True when ``exc`` is a duplicate key on either backend.
+
+    By code, never by message: Postgres translates its messages to the server's lc_messages,
+    so "duplicate key" read as text turned a replayed owner nonce or payment into a 500 on a
+    server that answers in another language.
+    """
+    if getattr(exc, "sqlstate", None) == _PG_UNIQUE_VIOLATION:
+        return True
+    if isinstance(exc, sqlite3.IntegrityError):
+        code = getattr(exc, "sqlite_errorcode", None)
+        if code is not None:
+            return code in _SQLITE_DUPLICATE
+        return str(exc).startswith("UNIQUE constraint failed")  # SQLite does not translate
+    return False
+
+
 @runtime_checkable
 class LedgerBackend(Protocol):
     backend_type: str

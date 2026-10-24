@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from hestia.db import LedgerBackend, open_ledger
+from hestia.db import LedgerBackend, is_unique_violation, open_ledger
 from hestia.migrations import apply_migrations, current_version
 
 # Not served, not listed, and retried by the next docker reconcile (at boot or
@@ -256,8 +256,7 @@ class TenantStore:
                 (key, slug, chain, token, str(paid_units), pay_to.lower(), time.time()),
             )
         except Exception as exc:
-            message = str(exc).lower()
-            if any(k in message for k in ("unique", "constraint", "duplicate")):
+            if is_unique_violation(exc):
                 return False
             raise
         return True
@@ -368,8 +367,7 @@ class TenantStore:
                      admitted_by or "open", now, now),
                 )
             except Exception as exc:
-                message = str(exc).lower()
-                if not any(k in message for k in ("unique", "constraint", "duplicate")):
+                if not is_unique_violation(exc):
                     raise
         elif admitted_by is None:
             self.backend.execute_write(
@@ -456,8 +454,7 @@ class TenantStore:
                 (f"{pubkey}:{nonce}", now),
             )
         except Exception as exc:
-            message = str(exc).lower()
-            if any(k in message for k in ("unique", "constraint", "duplicate")):
+            if is_unique_violation(exc):
                 return False
             raise
         return True

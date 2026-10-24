@@ -69,8 +69,14 @@ def _pg_url() -> str:
 def test_postgres_http_round_trip(tmp_path) -> None:
     from tests.conftest import auth, client, deploy_payload
 
+    # A fresh schema, as test_owners' client does: clearing tenants alone left the names a
+    # previous test's owner held (demo.echo), and this operator deploy of it was refused.
+    import psycopg
+
+    with psycopg.connect(_pg_url(), autocommit=True) as conn:
+        conn.execute("DROP SCHEMA public CASCADE")
+        conn.execute("CREATE SCHEMA public")
     api = client(tmp_path, database_url=_pg_url())
-    api.app.state.store.backend.execute_write("DELETE FROM tenants")
     created = api.post("/v1/tenants", json=deploy_payload(slug="pg-echo"), headers=auth(api))
     assert created.status_code == 200, created.text
     status = api.get("/v1/tenants/pg-echo")
@@ -95,3 +101,32 @@ def test_postgres_ledger(tmp_path) -> None:
         _exercise(store)
     finally:
         store.close()
+
+
+def test_duplicate_keys_are_recognised_by_code_not_by_message() -> None:
+    """A Postgres that answers in another language turned a replayed owner nonce into a 500:
+    the store read "duplicate key" out of the message text."""
+    import sqlite3
+
+    from hestia.db import is_unique_violation
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE t (k TEXT PRIMARY KEY, u TEXT UNIQUE, n TEXT NOT NULL)")
+    conn.execute("INSERT INTO t VALUES ('a', 'x', 'v')")
+    for sql in ("INSERT INTO t VALUES ('a', 'y', 'v')", "INSERT INTO t VALUES ('b', 'x', 'v')"):
+        with pytest.raises(sqlite3.IntegrityError) as dup:
+            conn.execute(sql)
+        assert is_unique_violation(dup.value), sql
+    with pytest.raises(sqlite3.IntegrityError) as not_null:
+        conn.execute("INSERT INTO t VALUES ('c', 'z', NULL)")
+    assert not is_unique_violation(not_null.value)
+
+    class PgError(Exception):
+        def __init__(self, sqlstate: str, message: str) -> None:
+            super().__init__(message)
+            self.sqlstate = sqlstate
+
+    ru = "повторяющееся значение ключа нарушает ограничение уникальности"
+    assert is_unique_violation(PgError("23505", ru))
+    assert not is_unique_violation(PgError("23502", "null value violates not-null constraint"))
+    assert not is_unique_violation(RuntimeError("duplicate key"))
