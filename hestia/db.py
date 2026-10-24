@@ -12,7 +12,6 @@ import threading
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-
 # SQLite's extended result codes for a duplicate key (UNIQUE index, PRIMARY KEY).
 _SQLITE_DUPLICATE = frozenset({2067, 1555})
 # Postgres SQLSTATE unique_violation.

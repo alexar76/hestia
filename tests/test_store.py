@@ -67,11 +67,11 @@ def _pg_url() -> str:
 
 @pytest.mark.skipif(not _pg_url(), reason="set HESTIA_TEST_DATABASE_URL to a scratch Postgres")
 def test_postgres_http_round_trip(tmp_path) -> None:
-    from tests.conftest import auth, client, deploy_payload
-
     # A fresh schema, as test_owners' client does: clearing tenants alone left the names a
     # previous test's owner held (demo.echo), and this operator deploy of it was refused.
     import psycopg
+
+    from tests.conftest import auth, client, deploy_payload
 
     with psycopg.connect(_pg_url(), autocommit=True) as conn:
         conn.execute("DROP SCHEMA public CASCADE")
