@@ -2,7 +2,7 @@
 # (see oracles/core/pyproject.toml). Distribution name is always aimarket-*.
 [project]
 name = "aimarket-hestia"
-version = "0.1.2"
+version = "0.1.3"
 description = "HESTIA — the hearth: isolated hosted runtime for AIMarket capability providers"
 readme = "README.md"
 requires-python = ">=3.11"

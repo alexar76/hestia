@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -14,6 +15,31 @@ from hestia.runtime.wasm import is_wasm
 from hestia.store import TenantStore
 
 _EDGE_FORWARD_HEADERS = frozenset({"content-type", "accept"})
+_ENCODED_SEPARATOR = re.compile(br"%(?:2f|5c)", re.IGNORECASE)
+
+
+def canonical_edge_path(path: str, raw_path: bytes) -> str:
+    """Use one unambiguous tenant path for both payment admission and dispatch.
+
+    ASGI has already decoded the path once. URL clients and upstream routers can
+    normalize it again, so reject paths whose meaning could change at that hop.
+    Query parameters are handled separately by the edge and never enter this path.
+    """
+    # Root/index hosting is legitimate. Preserve ordinary directory paths,
+    # while the two reserved routes have one spelling for admission/dispatch.
+    if path in ("invoke/", "health/"):
+        path = path[:-1]
+    segments = path.split("/") if path else []
+    if segments and segments[-1] == "":
+        segments.pop()
+    if (
+        _ENCODED_SEPARATOR.search(raw_path)
+        or any(char in path for char in "\\%?#;")
+        or any(ord(char) < 32 or ord(char) == 127 for char in path)
+        or any(segment in ("", ".", "..") for segment in segments)
+    ):
+        raise HTTPException(status_code=400, detail="ambiguous tenant path")
+    return path
 
 
 def edge_forward_headers(headers: Any) -> dict[str, str]:
@@ -41,6 +67,7 @@ def register(
     """Attach the tenant edge route to ``app``."""
     @app.api_route("/t/{slug}/{path:path}", methods=["GET", "POST"])
     async def edge(slug: str, path: str, request: Request) -> Response:
+        path = canonical_edge_path(path, request.scope.get("raw_path", b""))
         row = store.get(slug)
         if row is None or row.status != "running":
             raise HTTPException(status_code=404, detail="tenant is not running")

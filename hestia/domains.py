@@ -123,30 +123,62 @@ def txt_proofs(domain: str, *, doh_url: str = DEFAULT_DOH_URL,
 
 
 def resolve(domain: str) -> list[str]:
-    return sorted({info[4][0] for info in socket.getaddrinfo(domain, 443, type=socket.SOCK_STREAM)})
+    # The resolver's own order, which puts the family this host can reach first.
+    infos = socket.getaddrinfo(domain, 443, type=socket.SOCK_STREAM)
+    return list(dict.fromkeys(info[4][0] for info in infos))
 
 
-def require_public(domain: str) -> None:
-    """Refuse a domain that resolves to anything but public unicast addresses."""
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Global unicast, and so is any IPv4 address it carries: IPv4-mapped, 6to4 and NAT64
+    (64:ff9b::/96, which Python calls global) reach that IPv4 address on a host routing them."""
+    if ip.version == 6:
+        embedded = ip.ipv4_mapped or ip.sixtofour
+        if embedded is None and ip in _NAT64:
+            embedded = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+        if embedded is not None:
+            ip = embedded
+    return ip.is_global and not ip.is_multicast
+
+
+def require_public(domain: str) -> str:
+    """Refuse a domain that resolves to anything but public unicast addresses; return the
+    address to connect to."""
     try:
         addresses = resolve(domain)
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         raise DomainError(f"{domain} does not resolve") from exc
     if not addresses:
         raise DomainError(f"{domain} does not resolve")
     for address in addresses:
-        ip = ipaddress.ip_address(address.split("%", 1)[0])
-        if not ip.is_global or ip.is_multicast:
+        if not _public(ipaddress.ip_address(address.split("%", 1)[0])):
             raise DomainError(f"{domain} resolves to a non-public address; it is not fetched")
+    return addresses[0]
 
 
 def https_proofs(domain: str, *, transport: httpx.BaseTransport | None = None) -> set[str]:
-    """Owner keys listed at https://<domain>/.well-known/hestia-owner.json."""
+    """Owner keys listed at https://<domain>/.well-known/hestia-owner.json.
+
+    The GET goes to the address that passed, not to the name: fetching by name let httpx
+    resolve it again, and a domain that answered public for the check and 127.0.0.1 a moment
+    later was fetched (DNS rebinding, the class of Vulnetix GCVE-110-PYPI-2026-021946).
+    ``Host`` and TLS SNI carry the name, so the certificate is still verified against it.
+    """
+    url, headers, extensions = f"https://{domain}{PROOF_PATH}", {"accept": "application/json"}, {}
     if transport is None:
-        require_public(domain)
-    with httpx.Client(timeout=TIMEOUT_S, follow_redirects=False, transport=transport) as client:
-        with client.stream("GET", f"https://{domain}{PROOF_PATH}",
-                           headers={"accept": "application/json"}) as res:
+        address = require_public(domain)
+        try:
+            ascii_domain = domain.encode("idna").decode("ascii")
+        except UnicodeError as exc:
+            raise DomainError(f"{domain} is not a valid name") from exc
+        url = f"https://{f'[{address}]' if ':' in address else address}{PROOF_PATH}"
+        headers["Host"] = ascii_domain
+        extensions = {"sni_hostname": ascii_domain}
+    with httpx.Client(timeout=TIMEOUT_S, follow_redirects=False, transport=transport,
+                      trust_env=False) as client:
+        with client.stream("GET", url, headers=headers, extensions=extensions or None) as res:
             if res.status_code != 200:
                 return set()
             body = b""

@@ -89,7 +89,9 @@ def test_https_proofs_read_the_file_and_nothing_else() -> None:
 
 @pytest.mark.parametrize("address", ["127.0.0.1", "10.0.0.5", "172.20.0.2", "192.168.1.1",
                                      "100.64.1.1", "169.254.169.254", "192.0.2.10", "::1",
-                                     "fd00::1", "fe80::1", "224.0.0.1", "0.0.0.0"])
+                                     "fd00::1", "fe80::1", "224.0.0.1", "0.0.0.0",
+                                     # NAT64 (Python calls it global) and 6to4 forms of private IPv4
+                                     "64:ff9b::7f00:1", "2002:a9fe:a9fe::"])
 def test_a_domain_that_resolves_inward_is_not_fetched(monkeypatch, address) -> None:
     monkeypatch.setattr(domains, "resolve", lambda d: ["93.184.215.14", address])
     with pytest.raises(domains.DomainError, match="non-public"):
@@ -98,7 +100,36 @@ def test_a_domain_that_resolves_inward_is_not_fetched(monkeypatch, address) -> N
 
 def test_a_public_domain_passes_the_guard(monkeypatch) -> None:
     monkeypatch.setattr(domains, "resolve", lambda d: ["93.184.215.14", "2606:2800:21f:cb07::1"])
-    domains.require_public("example.com")
+    assert domains.require_public("example.com") == "93.184.215.14"
+
+
+def test_the_proof_is_fetched_from_the_address_that_passed(monkeypatch) -> None:
+    """Fetching by name let httpx resolve the domain again after the check (DNS rebinding)."""
+    answers = iter([["93.184.215.14"], ["127.0.0.1"]])
+    monkeypatch.setattr(domains, "resolve", lambda d: next(answers))
+    seen: dict = {}
+    real_client = httpx.Client
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def stream(self, method, url, headers=None, extensions=None):
+            seen.update(url=url, headers=headers, extensions=extensions)
+            return real_client(transport=httpx.MockTransport(
+                lambda request: httpx.Response(404))).stream("GET", "https://x.test/")
+
+    monkeypatch.setattr(domains.httpx, "Client", _Client)
+    assert domains.https_proofs("example.com") == set()
+    assert seen["url"] == "https://93.184.215.14/.well-known/hestia-owner.json"
+    assert seen["headers"]["Host"] == "example.com"
+    assert seen["extensions"] == {"sni_hostname": "example.com"}
 
 
 def test_prove_names_what_to_publish(monkeypatch) -> None:
