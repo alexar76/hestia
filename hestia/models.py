@@ -80,6 +80,16 @@ class DeployRequest(StrictModel):
     # Where this tenant's owner is paid. The hearth verifies payments to it and
     # never holds the funds, so it is the owner's address, not the operator's.
     payout_address: str = Field(default="", max_length=42)
+    # hestia.egress: exact public DNS names this agent's handler may fetch from, through the
+    # hearth. Public on the roster. Empty: no network, as before.
+    egress_hosts: list[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("egress_hosts")
+    @classmethod
+    def _egress(cls, value: list[str]) -> list[str]:
+        from hestia.egress import normalize_hosts
+
+        return normalize_hosts(value)
 
     @field_validator("payout_address")
     @classmethod

@@ -51,9 +51,20 @@ class ScriptedSandbox:
         self.held = threading.Event()
         self.release = threading.Event()
 
-    def run(self, source, payload, *, timeout_s=None):
+    def run(self, source, payload, *, timeout_s=None, fetched=None):
         self.calls.append((source, payload))
+        self.fetched = dict(fetched or {})
         mode = payload.get("mode", "ok") if isinstance(payload, dict) else "ok"
+        if mode == "fetch":
+            # What the real guest does for `fetch(url)`: answer from `fetched`, or ask for it.
+            from hestia.egress import request_key
+            wanted = {"method": "GET", "url": payload["url"], "headers": {}, "body": None}
+            got = self.fetched.get(request_key(wanted))
+            if got is None:
+                return Outcome(kind="fetch", fetch=wanted)
+            if got.get("refused"):
+                return Outcome(kind="error", error="egress refused: " + got["refused"])
+            return Outcome(kind="ok", result={"status": got["status"], "text": got["text"]})
         if mode == "hold":
             self.held.set()
             self.release.wait(10)

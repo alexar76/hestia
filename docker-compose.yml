@@ -37,6 +37,11 @@ services:
       HESTIA_MAX_TENANTS: "${HESTIA_MAX_TENANTS:-8}"
       HESTIA_OWNER_MAX_TENANTS: "${HESTIA_OWNER_MAX_TENANTS:-3}"
       HESTIA_OPEN_OWNERS: "${HESTIA_OPEN_OWNERS:-0}"
+      # hestia.egress: agents fetch() through the hearth from the hosts their deploy names
+      # (needs HESTIA_RUNTIME=wasm). Per agent / for all agents together, per minute.
+      HESTIA_TENANT_EGRESS: "${HESTIA_TENANT_EGRESS:-0}"
+      HESTIA_TENANT_EGRESS_PER_MINUTE: "${HESTIA_TENANT_EGRESS_PER_MINUTE:-60}"
+      HESTIA_TENANT_EGRESS_HEARTH_PER_MINUTE: "${HESTIA_TENANT_EGRESS_HEARTH_PER_MINUTE:-600}"
       # Name prefixes no owner may deploy under (empty: aicom,aimarket,modelmarket; hestia always).
       HESTIA_RESERVED_PREFIXES: "${HESTIA_RESERVED_PREFIXES:-}"
       HESTIA_TENANT_HUB_KEYS: "${HESTIA_TENANT_HUB_KEYS:-}"

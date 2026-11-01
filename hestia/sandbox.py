@@ -39,16 +39,56 @@ TICK_S = 0.05
 # nothing the handler returns: the result must be a JSON object, or the call fails.
 GUEST = r"""
 import json, sys
+_PENDING = []
+class _NeedFetch(BaseException):
+    pass
+class Response:
+    def __init__(self, raw):
+        self.status = int(raw.get("status") or 0)
+        self.headers = dict(raw.get("headers") or {})
+        self.text = str(raw.get("text") or "")
+        self.error = raw.get("error")
+    @property
+    def ok(self):
+        return 200 <= self.status < 300
+    def json(self):
+        return json.loads(self.text)
+def _key(method, url, headers, body):
+    pairs = sorted((str(k).lower(), str(v)) for k, v in (headers or {}).items())
+    return json.dumps([str(method or "GET").upper(), url, pairs, body],
+                      ensure_ascii=False, separators=(",", ":"))
+def _make_fetch(fetched):
+    # The sandbox has no sockets. fetch() returns a response the hearth already fetched for
+    # this call, or records the request and ends the run; the hearth fetches it (only from
+    # this agent's declared egress hosts) and runs the handler again from the start.
+    def fetch(url, method="GET", headers=None, body=None, json=None):
+        if json is not None:
+            body = _dumps(json)
+            headers = dict(headers or {})
+            headers.setdefault("content-type", "application/json")
+        hdrs = {str(k).lower(): str(v) for k, v in (headers or {}).items()}
+        key = _key(method, url, hdrs, body)
+        if key in fetched:
+            raw = fetched[key]
+            if raw.get("refused"):
+                raise RuntimeError("egress refused: " + str(raw["refused"])[:200])
+            return Response(raw)
+        _PENDING.append({"method": str(method).upper(), "url": url, "headers": hdrs, "body": body})
+        raise _NeedFetch()
+    return fetch
+def _dumps(value):
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 def _main():
     request = json.loads(sys.stdin.read())
-    namespace = {"__name__": "handler"}
+    fetched = request.get("fetched") or {}
+    namespace = {"__name__": "handler", "fetch": _make_fetch(fetched), "Response": Response}
     try:
         exec(compile(request["source"], "handler.py", "exec"), namespace)
         handle = namespace.get("handle")
         if not callable(handle):
             raise RuntimeError("handler.py must define handle(payload)")
         result = handle(request["payload"])
-        if not isinstance(result, dict):
+        if not _PENDING and not isinstance(result, dict):
             raise ValueError("handler must return an object")
         text = json.dumps({"ok": True, "result": result}, ensure_ascii=False,
                           allow_nan=False, separators=(",", ":"))
@@ -60,6 +100,10 @@ def _main():
         message = str(exc)[:300] or type(exc).__name__
         text = json.dumps({"ok": False, "kind": "error", "error": message},
                           ensure_ascii=False)
+    if _PENDING:
+        # Asked for a response it does not have yet, even if it then caught the signal.
+        text = json.dumps({"ok": False, "kind": "fetch", "request": _PENDING[0]},
+                          ensure_ascii=False, separators=(",", ":"))
     sys.stdout.write("\x1e" + text)
 _main()
 """
@@ -73,6 +117,8 @@ class Outcome:
     result: dict[str, Any] | None = None
     error: str = ""
     wall_ms: int = 0
+    # kind == "fetch": the request the handler asked the hearth to make (hestia.egress).
+    fetch: dict[str, Any] | None = None
 
     @property
     def ok(self) -> bool:
@@ -82,6 +128,8 @@ class Outcome:
         out: dict[str, Any] = {"kind": self.kind, "wall_ms": self.wall_ms}
         if self.ok:
             out["result"] = self.result
+        elif self.kind == "fetch":
+            out["fetch"] = self.fetch
         else:
             out["error"] = self.error
         return out
@@ -133,7 +181,8 @@ class Sandbox:
     def close(self) -> None:
         self._stop.set()
 
-    def run(self, source: str, payload: Any, *, timeout_s: float | None = None) -> Outcome:
+    def run(self, source: str, payload: Any, *, timeout_s: float | None = None,
+            fetched: dict[str, Any] | None = None) -> Outcome:
         wasmtime = self._wasmtime
         budget = self.timeout_s if timeout_s is None else min(timeout_s, self.timeout_s)
         store = wasmtime.Store(self._engine)
@@ -152,7 +201,8 @@ class Sandbox:
         started = time.perf_counter()
         with tempfile.TemporaryDirectory(prefix="hestia-call-") as tmp:
             request = Path(tmp) / "request.json"
-            request.write_text(json.dumps({"source": source, "payload": payload},
+            request.write_text(json.dumps({"source": source, "payload": payload,
+                                           "fetched": fetched or {}},
                                           ensure_ascii=False), encoding="utf-8")
             wasi = wasmtime.WasiConfig()
             wasi.argv = ["python", "-I", "-S", "-B", "-c", GUEST]
@@ -188,6 +238,9 @@ class Sandbox:
             return self._done("crash", started, error="handler answer is not JSON")
         if answer.get("ok") is True and isinstance(answer.get("result"), dict):
             return self._done("ok", started, result=answer["result"])
+        if answer.get("kind") == "fetch" and isinstance(answer.get("request"), dict):
+            return Outcome(kind="fetch", fetch=answer["request"],
+                           wall_ms=int((time.perf_counter() - started) * 1000))
         kind = answer.get("kind") if answer.get("kind") in ("error", "memory") else "error"
         return self._done(kind, started, error=str(answer.get("error") or "handler failed")[:300])
 

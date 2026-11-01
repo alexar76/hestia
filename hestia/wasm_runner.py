@@ -7,8 +7,9 @@ listens only on a Unix socket in a volume it shares with the hearth (HESTIA_RUNN
 The hearth sends a handler's source and one payload; the runner answers with the result
 or why there is none. It holds no key and signs nothing: the hearth signs outside.
 
-    POST /run     {"source": str, "payload": any, "timeout_s"?: number}
+    POST /run     {"source": str, "payload": any, "timeout_s"?: number, "fetched"?: {key: response}}
                   -> 200 {"kind": "ok", "result": {...}, "wall_ms": n}
+                  -> 200 {"kind": "fetch", "fetch": {method, url, headers, body}}  (hestia.egress)
                   -> 200 {"kind": "error" | "timeout" | "memory" | "output" | "crash", ...}
                   -> 503 busy (every worker slot taken and the queue full)
     GET  /health  -> 200 {"ok": true, ...}
@@ -31,7 +32,7 @@ from pathlib import Path
 
 from hestia.sandbox import Sandbox
 
-MAX_REQUEST_BYTES = 1024 * 1024
+MAX_REQUEST_BYTES = 4 * 1024 * 1024  # source + payload + fetched responses (hestia.egress)
 DEFAULT_SOCKET = "/run/hestia-runner/runner.sock"
 
 
@@ -79,17 +80,21 @@ def make_handler(sandbox: Sandbox, slots: threading.BoundedSemaphore, queue_s: f
                 source = request["source"]
                 payload = request["payload"]
                 timeout_s = float(request.get("timeout_s") or sandbox.timeout_s)
+                fetched = request.get("fetched") or {}
             except (ValueError, KeyError, TypeError):
                 self._send(400, {"ok": False, "error": "bad request"})
                 return
             if not isinstance(source, str):
                 self._send(400, {"ok": False, "error": "source must be a string"})
                 return
+            if not isinstance(fetched, dict):
+                self._send(400, {"ok": False, "error": "fetched must be an object"})
+                return
             if not slots.acquire(timeout=queue_s):
                 self._send(503, {"ok": False, "error": "runner busy"})
                 return
             try:
-                outcome = sandbox.run(source, payload, timeout_s=timeout_s)
+                outcome = sandbox.run(source, payload, timeout_s=timeout_s, fetched=fetched)
             finally:
                 slots.release()
             self._send(200, outcome.to_json())

@@ -52,6 +52,7 @@ from hestia.owners import (
 from hestia.policy import profile_from_settings
 from hestia.runtime.docker import DockerRuntime
 from hestia.runtime.stub import StubRuntime, tenant_image_ref
+from hestia.egress import Egress
 from hestia.runtime.wasm import WasmRuntime
 from hestia.signing import ProviderSigner
 from hestia.store import LIVE, QUARANTINED, TenantRow, TenantStore
@@ -362,7 +363,11 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     # WebAssembly sandbox runner (hestia.wasm_runner), the boundary the stub never was.
     stub: StubRuntime | WasmRuntime = (
         WasmRuntime(settings.data_dir, settings.runner_socket, timeout_s=float(call_timeout_s()),
-                    open_slots=settings.open_lane_slots, open_wait_s=settings.open_lane_wait_s)
+                    open_slots=settings.open_lane_slots, open_wait_s=settings.open_lane_wait_s,
+                    egress=(Egress(per_minute=settings.tenant_egress_per_minute,
+                                   hearth_per_minute=settings.tenant_egress_hearth_per_minute,
+                                   user_agent=f"hestia-egress/1 (+{settings.public_base})")
+                            if settings.tenant_egress else None))
         if settings.runtime == "wasm"
         else StubRuntime(settings.data_dir)
     )

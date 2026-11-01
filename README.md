@@ -135,6 +135,52 @@ costs disk, not memory: hundreds fit where the stub held about thirty.
 Proven on the reference hearth with a stranger's agent written to escape: every path it tried was
 `FileNotFoundError`, the network and processes were unavailable, its environment held two variables.
 
+## Network for agents (`HESTIA_TENANT_EGRESS`)
+
+The sandbox has no sockets, and that stays. An agent that sells data it reads elsewhere — a
+chain's RPC, a public weather or price API — gets the network **through the hearth**, on terms
+set at deploy:
+
+```json
+{"slug": "base-gas", "egress_hosts": ["mainnet.base.org"], "capability": {…},
+ "source": {"kind": "template", "handler": "…"}, "owner_pubkey": "…"}
+```
+
+```python
+def handle(payload):
+    r = fetch("https://mainnet.base.org", method="POST",
+              json={"jsonrpc": "2.0", "id": 1, "method": "eth_gasPrice", "params": []})
+    if not r.ok:
+        raise RuntimeError(f"rpc answered {r.status}")
+    return {"gas_price_wei": int(r.json()["result"], 16), "chain": "eip155:8453"}
+```
+
+`fetch(url, method="GET", headers=None, body=None, json=None)` returns a response with
+`status`, `headers`, `text`, `ok` and `json()`. Inside the sandbox it only records the request
+and ends the run; the hearth makes the request and runs the handler again from the start with
+the response, so each `fetch` a call needs is one round (at most 6 per call). A handler should
+therefore be a function of its input and the responses, which a template handler already is.
+
+What the hearth enforces (`hestia/egress.py`), whatever the handler asks:
+
+| Rule | Value |
+|---|---|
+| hosts | only the deploy's `egress_hosts`: at most 8 exact public DNS names — no IP literals, wildcards, ports, `localhost`, `.internal`/`.local`/… names. **Public:** `/v1/hearth` lists them next to the agent |
+| scheme, port, methods | `https`, 443, `GET` and `POST` |
+| address | resolved by the hearth; **every** answer must be a public address (one private answer refuses the name — the DNS-rebinding shape); the request goes to that checked address with the TLS name and `Host` set to the host, so the certificate is verified for it |
+| redirects, proxies, cookies | not followed / not used / not kept; a `3xx` comes back to the handler as a response |
+| request headers | only `accept`, `accept-language`, `authorization`, `content-type`, `x-api-key`; no CR/LF |
+| sizes, time | request body ≤ 64 KiB, response ≤ 256 KiB, 5 s per request |
+| budget | `HESTIA_TENANT_EGRESS_PER_MINUTE` (60) per agent, `HESTIA_TENANT_EGRESS_HEARTH_PER_MINUTE` (600) for all agents together |
+| log | tenant, method, host, status, bytes, ms — never a body |
+
+A refused request reaches the handler as an exception (`egress refused: …`), so a buyer gets
+the handler's error, not a hearth fault. Egress is off by default and needs
+`HESTIA_RUNTIME=wasm`; a deploy that names `egress_hosts` on a hearth without it is refused.
+The reference hearth hosts such agents **free of charge**, self-admitted owners included: the
+only cost to a seller is its own upstream (an RPC key, an API plan), and a seller with no buyers
+yet keeps its listing instead of paying for a server.
+
 ## Owners
 
 A shared hearth hosts agents of more than one business, so the operator token is not the only key. An **owner** is an Ed25519 key the operator admits (`POST /v1/owners`). Every owner request is signed over the hearth's public base, method, path, a unix timestamp (±300 s), a one-time nonce and the SHA-256 of the body (`X-Hestia-Owner` / `-Timestamp` / `-Nonce` / `-Signature`, format `hestia-owner/1` in [`hestia/owners.py`](hestia/owners.py)).
@@ -295,6 +341,8 @@ sandbox runner too when `HESTIA_RUNTIME=wasm`, and waits until both are healthy.
 | `HESTIA_DEPLOY_TOKEN` | empty | Operator bearer: every write, owner admission. Empty = locked (owner requests still need admitted owners). |
 | `HESTIA_OWNER_MAX_TENANTS` | `3` | Default per-owner quota (the operator can set another per owner) |
 | `HESTIA_TENANT_HUB_KEYS` | empty | `url=key,…`: hubs that may sell tenants on their owners' behalf (each key = that hub's `AIMARKET_PEER_API_KEYS` entry for this hearth) |
+| `HESTIA_TENANT_EGRESS` | `0` | `1` = wasm agents may `fetch()` from the hosts their deploy names, through the hearth (see *Network for agents*) |
+| `HESTIA_TENANT_EGRESS_PER_MINUTE` / `HESTIA_TENANT_EGRESS_HEARTH_PER_MINUTE` | `60` / `600` | Egress requests per agent / for all agents together, per minute |
 | `HESTIA_OPEN_OWNERS` | `0` | `1` = any valid owner key admits itself on first deploy; code only with `HESTIA_OPEN_OWNER_CODE=1` under `wasm` |
 | `HESTIA_OWNER_SKEW_S` | `300` | Owner request clock window, seconds |
 | `HESTIA_MAX_TENANTS` | `32` (compose `8`) | Hard cap on running + quarantined agents (a stopped one keeps its slug, not its place). Stub tenants are resident processes (~31 MB each); `wasm` tenants cost disk only (the reference hearth runs 256) |

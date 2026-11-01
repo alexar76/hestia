@@ -290,6 +290,11 @@ def register(
         runtime = docker if digest else stub
         if runtime is None:  # an image digest passed the checks above only under docker
             raise HTTPException(status_code=400, detail="pinned images require HESTIA_RUNTIME=docker")
+        if body.egress_hosts and (digest or not settings.tenant_egress):
+            raise HTTPException(
+                status_code=400,
+                detail="egress_hosts need a template agent on a hearth with HESTIA_TENANT_EGRESS=1",
+            )
         try:
             running = runtime.start(
                 slug=body.slug,
@@ -297,7 +302,8 @@ def register(
                 handler=handler,
                 image_digest=digest,
                 profile=profile,
-                env={"HESTIA_TENANT_MAX_BODY_BYTES": str(settings.max_body_bytes)},
+                env={"HESTIA_TENANT_MAX_BODY_BYTES": str(settings.max_body_bytes),
+                     "HESTIA_EGRESS_HOSTS": ",".join(body.egress_hosts)},
             )
         except Exception as exc:
             # The old tenant is already stopped. Leaving the row "running" would

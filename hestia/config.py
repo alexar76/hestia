@@ -144,6 +144,11 @@ class Settings:
     runner_workers: int = 2
     open_lane_slots: int = 1
     open_lane_wait_s: float = 2.0
+    # hestia.egress: HESTIA_TENANT_EGRESS=1 lets a wasm agent fetch, through the hearth, from
+    # the hosts its deploy names; tenant_egress_per_minute requests per agent per minute.
+    tenant_egress: bool = False
+    tenant_egress_per_minute: int = 60
+    tenant_egress_hearth_per_minute: int = 600
     # Name prefixes the operator holds from boot (hestia/names.py): no owner may deploy a
     # capability family, product or publisher whose folded name starts with one. `hestia`
     # is always the hearth's own.
@@ -194,6 +199,12 @@ class Settings:
             raise RuntimeError(
                 "HESTIA_OPEN_OWNER_CODE=1 needs HESTIA_RUNTIME=wasm: strangers' code runs only "
                 "in the WebAssembly sandbox, never in a stub process"
+            )
+        tenant_egress = _truthy("HESTIA_TENANT_EGRESS")
+        if tenant_egress and runtime != "wasm":
+            raise RuntimeError(
+                "HESTIA_TENANT_EGRESS=1 needs HESTIA_RUNTIME=wasm: agents reach the network only "
+                "through the hearth's fetch rounds (hestia.egress), never from a process of their own"
             )
         runner_workers = int(os.environ.get("HESTIA_RUNNER_WORKERS", "2"))
         open_lane_slots = int(os.environ.get("HESTIA_OPEN_LANE_SLOTS", "1"))
@@ -417,6 +428,10 @@ class Settings:
             runner_workers=runner_workers,
             open_lane_slots=open_lane_slots,
             open_lane_wait_s=max(0.0, float(os.environ.get("HESTIA_OPEN_LANE_WAIT_S", "2"))),
+            tenant_egress=tenant_egress,
+            tenant_egress_per_minute=max(1, int(os.environ.get("HESTIA_TENANT_EGRESS_PER_MINUTE", "60"))),
+            tenant_egress_hearth_per_minute=max(
+                1, int(os.environ.get("HESTIA_TENANT_EGRESS_HEARTH_PER_MINUTE", "600"))),
             reserved_prefixes=tuple(p.lower() for p in _csv("HESTIA_RESERVED_PREFIXES"))
             or DEFAULT_RESERVED_PREFIXES,
             doh_url=os.environ.get("HESTIA_DOH_URL", "").strip()

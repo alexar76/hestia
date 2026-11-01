@@ -15,6 +15,7 @@ signing canonical — a tenant moved from the stub runtime keeps its key and its
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import threading
 import time
@@ -23,6 +24,7 @@ from typing import Any
 
 import httpx
 
+from hestia.egress import MAX_RESPONSE_BYTES, MAX_ROUNDS, Egress, EgressRefused, EgressRequest, request_key
 from hestia.models import CapabilitySpec
 from hestia.policy import IsolationProfile
 from hestia.runtime import RunningTenant
@@ -105,12 +107,16 @@ class WasmRuntime:
         timeout_s: float = 10.0,
         open_slots: int = 1,
         open_wait_s: float = 2.0,
+        egress: Egress | None = None,
     ) -> None:
         self.data_dir = data_dir
         self.socket_path = socket_path
         self.timeout_s = timeout_s
         self.open_lane = OpenLane(open_slots, open_wait_s)
         self._signers: dict[str, ProviderSigner] = {}
+        # None: this hearth gives agents no network (HESTIA_TENANT_EGRESS off). A handler that
+        # calls fetch() then gets an error, as before egress existed.
+        self.egress = egress
 
     def _dir(self, slug: str) -> Path:
         return self.data_dir / "tenants" / slug
@@ -125,7 +131,7 @@ class WasmRuntime:
         profile: IsolationProfile,
         env: dict[str, str],
     ) -> RunningTenant:
-        del image_digest, profile, env  # the sandbox sets its own limits; no process to start
+        del image_digest, profile  # the sandbox sets its own limits; no process to start
         tenant_dir = self._dir(slug)
         tenant_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(tenant_dir, 0o700)
@@ -139,6 +145,16 @@ class WasmRuntime:
             os.chmod(handler_file, 0o600)
         elif handler_file.exists():
             handler_file.unlink()
+        # The hosts this agent may fetch from (hestia.egress), set by its deploy. A restart
+        # passes no key and keeps the file; a redeploy always passes it, even empty.
+        if "HESTIA_EGRESS_HOSTS" in env:
+            hosts = [h for h in env["HESTIA_EGRESS_HOSTS"].split(",") if h]
+            egress_file = tenant_dir / "egress.json"
+            if hosts:
+                egress_file.write_text(json.dumps({"hosts": hosts}), encoding="utf-8")
+                os.chmod(egress_file, 0o600)
+            elif egress_file.exists():
+                egress_file.unlink()
         # Creates the tenant's key on first start and keeps it for ever after, exactly as
         # the stub did: a tenant moved here signs with the identity buyers pinned.
         self._signers[slug] = ProviderSigner(tenant_dir / "tenant.key", pqc=False)
@@ -151,6 +167,14 @@ class WasmRuntime:
         path = self._dir(slug) / "handler.py"
         return path.read_text(encoding="utf-8") if path.is_file() else ""
 
+    def egress_hosts(self, slug: str) -> list[str]:
+        path = self._dir(slug) / "egress.json"
+        try:
+            hosts = json.loads(path.read_text(encoding="utf-8")).get("hosts") or []
+        except (OSError, ValueError, AttributeError):
+            return []
+        return [h for h in hosts if isinstance(h, str)]
+
     def health(self, slug: str) -> dict[str, Any]:
         return {"ok": True, "slug": slug, "status": "running", "runtime": "wasm"}
 
@@ -161,11 +185,13 @@ class WasmRuntime:
             self._signers[slug] = signer
         return signer
 
-    async def _run(self, source: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    async def _run(self, source: str, payload: dict[str, Any],
+                   fetched: dict[str, Any] | None = None) -> tuple[int, dict[str, Any]]:
         transport = httpx.AsyncHTTPTransport(uds=self.socket_path)
         async with httpx.AsyncClient(transport=transport, timeout=self.timeout_s + 15.0) as client:
             response = await client.post("http://runner/run", json={
-                "source": source, "payload": payload, "timeout_s": self.timeout_s})
+                "source": source, "payload": payload, "timeout_s": self.timeout_s,
+                "fetched": fetched or {}})
         try:
             body = response.json()
         except ValueError:
@@ -198,7 +224,7 @@ class WasmRuntime:
             if open_owner is not None and not await self.open_lane.enter(open_owner):
                 return 503, {"ok": False, "error": LANE_BUSY}
             try:
-                status, outcome = await self._run(source, body)
+                status, outcome = await self._run_with_egress(slug, source, body)
             except httpx.HTTPError:
                 return 502, {"ok": False, "error": "sandbox runner unreachable"}
             finally:
@@ -225,3 +251,35 @@ class WasmRuntime:
                 input_payload=body,
             ),
         }
+
+    async def _run_with_egress(self, slug: str, source: str,
+                               body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        """Run the handler; each time it asks for a response it does not have, fetch it (only
+        from this agent's egress hosts) and run it again with every response so far."""
+        fetched: dict[str, Any] = {}
+        total = 0
+        for _ in range(MAX_ROUNDS + 1):
+            status, outcome = await self._run(source, body, fetched)
+            if status != 200 or outcome.get("kind") != "fetch":
+                return status, outcome
+            raw = outcome.get("fetch")
+            if not isinstance(raw, dict):
+                return 200, {"kind": "error", "error": "malformed fetch request"}
+            key = request_key(raw)
+            if key in fetched:  # asked again for what it already has: a handler bug, not a loop
+                return 200, {"kind": "error", "error": "fetch repeated a request it already has"}
+            if len(fetched) >= MAX_ROUNDS:
+                return 200, {"kind": "error",
+                             "error": f"at most {MAX_ROUNDS} fetches per call"}
+            try:
+                if self.egress is None:
+                    raise EgressRefused("this hearth gives agents no network")
+                request = EgressRequest.parse(raw, self.egress_hosts(slug))
+                response = await self.egress.fetch(slug, request)
+            except EgressRefused as exc:
+                response = {"refused": str(exc)[:300]}
+            total += len(str(response.get("text") or ""))
+            if total > 4 * MAX_RESPONSE_BYTES:
+                return 200, {"kind": "error", "error": "fetched responses exceed this call's budget"}
+            fetched[key] = response
+        return 200, {"kind": "error", "error": f"at most {MAX_ROUNDS} fetches per call"}

@@ -282,6 +282,12 @@ def register(
             if owner_record is not None and owner_record["status"] != "active":
                 continue  # a suspended owner's agents are not hosted here while suspended
             item = row.public_dict()
+            # Where its answers may come from (hestia.egress): the hosts it can fetch through
+            # the hearth. A buyer sees them before paying.
+            if isinstance(stub, WasmRuntime):
+                hosts = stub.egress_hosts(row.slug)
+                if hosts:
+                    item["egress_hosts"] = hosts
             # Whose agent this is: the hearth operator's own (no admitted owner — the reference
             # agents carry the placeholder key), or an admitted owner's, by the label the
             # operator gave it. A dashboard counts "ours" against "third-party" from this.
