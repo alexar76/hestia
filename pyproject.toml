@@ -31,7 +31,7 @@ pqc = [
 # HESTIA_RUNTIME=wasm: the WebAssembly sandbox runner (hestia.wasm_runner) executes template
 # handlers in CPython-for-WASI under wasmtime. Pinned: the sandbox is the security boundary.
 wasm = [
-    "wasmtime==49.0.0",
+    "wasmtime==50.0.1",
 ]
 dev = [
     "pytest>=8",
