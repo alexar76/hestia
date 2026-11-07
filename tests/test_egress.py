@@ -20,7 +20,10 @@ from hestia.egress import (
     request_key,
 )
 from tests.conftest import auth, deploy_payload
-from tests.test_wasm_runtime import scripted_runner, wasm_client  # noqa: F401  (fixture)
+from tests.test_wasm_runtime import wasm_client
+
+# Load scripted_runner without importing the name into this module (ruff F811).
+pytest_plugins = ("tests.test_wasm_runtime",)
 
 PUBLIC = "93.184.215.14"
 HOSTS = ["api.example.org"]
