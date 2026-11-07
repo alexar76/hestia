@@ -24,7 +24,14 @@ from typing import Any
 
 import httpx
 
-from hestia.egress import MAX_RESPONSE_BYTES, MAX_ROUNDS, Egress, EgressRefused, EgressRequest, request_key
+from hestia.egress import (
+    MAX_RESPONSE_BYTES,
+    MAX_ROUNDS,
+    Egress,
+    EgressRefused,
+    EgressRequest,
+    request_key,
+)
 from hestia.models import CapabilitySpec
 from hestia.policy import IsolationProfile
 from hestia.runtime import RunningTenant

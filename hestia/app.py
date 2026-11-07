@@ -34,6 +34,7 @@ from hestia.compute import (
 )
 from hestia.compute import price_of as compute_price_of
 from hestia.config import Settings
+from hestia.egress import Egress
 from hestia.limits import BodyLimitMiddleware
 from hestia.listing import LISTED
 from hestia.models import CapabilitySpec
@@ -52,7 +53,6 @@ from hestia.owners import (
 from hestia.policy import profile_from_settings
 from hestia.runtime.docker import DockerRuntime
 from hestia.runtime.stub import StubRuntime, tenant_image_ref
-from hestia.egress import Egress
 from hestia.runtime.wasm import WasmRuntime
 from hestia.signing import ProviderSigner
 from hestia.store import LIVE, QUARANTINED, TenantRow, TenantStore
