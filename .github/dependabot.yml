@@ -1,12 +1,14 @@
+# open-pull-requests-limit 0: no routine version-update PRs on the GitHub mirrors (owner, 2026-11-10).
+# Dependencies are updated in the aicom monorepo; GitHub still opens security-update PRs where they are enabled.
 version: 2
 updates:
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: monthly
-    open-pull-requests-limit: 4
+    open-pull-requests-limit: 0
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
-    open-pull-requests-limit: 4
+    open-pull-requests-limit: 0
