@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import re
 import secrets
 import time
@@ -81,6 +82,33 @@ def opens(secret: str, nonce: str) -> bool:
 
 class PaymentError(RuntimeError):
     """The call has not been paid for. Carries a reason the buyer can act on."""
+
+
+class PaymentPending(PaymentError):
+    """Resubmit the same payment once its receipt is visible and confirmed."""
+
+
+class MalformedTenantResponse(ValueError):
+    """The provider may have executed, but its response cannot be delivered."""
+
+
+def decode_tenant_json(body: bytes) -> Any:
+    def reject_constant(_value: str) -> None:
+        raise ValueError
+
+    try:
+        return json.loads(body, parse_constant=reject_constant)
+    except (ValueError, RecursionError) as exc:
+        raise MalformedTenantResponse from exc
+
+
+def tenant_request_key(door: str, body: Any, *routing: str) -> str:
+    """Identify one logical request without retaining its payload."""
+    payload = body if isinstance(body, bytes) else json.dumps(
+        body, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+    ).encode()
+    data = json.dumps([door, *routing, hashlib.sha256(payload).hexdigest()], separators=(",", ":"))
+    return hashlib.sha256(data.encode()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -175,6 +203,8 @@ def verify_transfer(
     terms: PaymentTerms,
     timeout: float = 10.0,
     max_age_s: int = 0,
+    paid_after: float | None = None,
+    paid_before: float | None = None,
     require_nonce: str,
 ) -> dict[str, Any]:
     """Confirm `tx_hash` paid `terms`. Raises PaymentError with the reason.
@@ -190,9 +220,8 @@ def verify_transfer(
     payment was made for this call. A plain transfer to the payout address carries none
     of that: it is money from somebody, for something, and its hash is public once mined.
 
-    `max_age_s`, when > 0, refuses a transfer whose block is older than that many
-    seconds. Fail-closed: if the block's age cannot be read, the payment is refused
-    rather than assumed fresh.
+    Check the block timestamp whenever an age limit or a quote window applies.
+    A transfer in the quote window can be confirmed after the quote expires.
     """
     if not _TX_HASH.match((tx_hash or "").strip()):
         raise PaymentError("payment reference must be a 0x transaction hash")
@@ -227,7 +256,7 @@ def verify_transfer(
     if receipt is None:
         if transport_error is not None and len(urls) == 1:
             raise transport_error
-        raise PaymentError("transaction is not on chain yet")
+        raise PaymentPending("transaction is not on chain yet")
     if str(receipt.get("status", "")).lower() not in ("0x1", "1"):
         raise PaymentError("transaction reverted")
 
@@ -235,12 +264,12 @@ def verify_transfer(
     mined = int(receipt.get("blockNumber", "0x0"), 16)
     confirmations = max(0, head - mined + 1)
     if confirmations < terms.min_confirmations:
-        raise PaymentError(
+        raise PaymentPending(
             f"payment has {confirmations} confirmation(s); "
             f"{terms.min_confirmations} required"
         )
 
-    if max_age_s > 0:
+    if max_age_s > 0 or paid_after is not None or paid_before is not None:
         # Ask the SAME endpoint that served the receipt for the block, so a node
         # that answered the receipt answers this too. Fail-closed on anything
         # unreadable: a payment whose age we cannot establish is refused.
@@ -252,8 +281,13 @@ def verify_transfer(
             mined_at = int(str(raw_ts), 16)
         except (TypeError, ValueError) as exc:
             raise PaymentError("cannot establish payment age; refusing") from exc
+        # Block timestamps have whole-second precision.
+        if paid_after is not None and mined_at < int(paid_after):
+            raise PaymentError("payment was mined before this quote was issued")
+        if paid_before is not None and mined_at >= paid_before:
+            raise PaymentError("payment was mined after this quote expired")
         age = time.time() - mined_at
-        if age > max_age_s:
+        if max_age_s > 0 and age > max_age_s:
             raise PaymentError(
                 f"payment is {int(age)}s old; must be within {max_age_s}s of the "
                 "call (an old transfer cannot be replayed as a fresh payment)"

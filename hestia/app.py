@@ -65,14 +65,11 @@ PRODUCT_ID = "hestia"
 LIFECYCLE_WAIT_S = 15.0
 @dataclass(frozen=True)
 class Claim:
-    """What a settled call holds so a platform-side failure can give it back.
-
-    The transaction stops one payment buying two calls; the invoice nonce stops a
-    payment buying a call it was not signed for. Releasing has to hand back both,
-    or the buyer keeps the money spent and the invoice burned."""
+    """A verified tenant payment and its durable delivery identity."""
 
     tx_hash: str
-    nonce: str = ""
+    nonce: str
+    request_key: str
 
 
 def tenant_handle(source_kind: str, slug: str) -> str:
@@ -638,26 +635,23 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         compute_limits=compute_limits,
         compute_slots=compute_slots,
         hearth=hearth,
+        lifecycle=lifecycle,
         settings=settings,
         signer=signer,
         store=store,
         stub=stub,
     )
     _read_capped = invoke_scope._read_capped
-    _release_claim = invoke_scope._release_claim
-    _release_on_platform_failure = invoke_scope._release_on_platform_failure
+    _deliver_paid = invoke_scope._deliver_paid
     _settle = invoke_scope._settle
-    _still_serving = invoke_scope._still_serving
     _terms_for = invoke_scope._terms_for
     _wasm_edge = invoke_scope._wasm_edge
 
     # Tenant edge.
     _edge_routes.register(
         _read_capped=_read_capped,
-        _release_claim=_release_claim,
-        _release_on_platform_failure=_release_on_platform_failure,
+        _deliver_paid=_deliver_paid,
         _settle=_settle,
-        _still_serving=_still_serving,
         _suspended=_suspended,
         _terms_for=_terms_for,
         _wasm_edge=_wasm_edge,

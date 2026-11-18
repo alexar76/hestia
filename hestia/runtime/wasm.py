@@ -19,6 +19,7 @@ import json
 import os
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,7 @@ from hestia.egress import (
     request_key,
 )
 from hestia.models import CapabilitySpec
+from hestia.payments import MalformedTenantResponse
 from hestia.policy import IsolationProfile
 from hestia.runtime import RunningTenant
 from hestia.scan import lint_wasm_handler
@@ -101,6 +103,13 @@ class OpenLane:
     def busy(self) -> int:
         with self._lock:
             return len(self._owners)
+
+
+@dataclass(frozen=True)
+class WasmInvocation:
+    source: str
+    egress_hosts: tuple[str, ...]
+    signer: ProviderSigner
 
 
 class WasmRuntime:
@@ -192,6 +201,11 @@ class WasmRuntime:
             self._signers[slug] = signer
         return signer
 
+    def invocation_snapshot(self, slug: str) -> WasmInvocation:
+        return WasmInvocation(
+            self.stored_handler(slug), tuple(self.egress_hosts(slug)), self._signer(slug)
+        )
+
     async def _run(self, source: str, payload: dict[str, Any],
                    fetched: dict[str, Any] | None = None) -> tuple[int, dict[str, Any]]:
         transport = httpx.AsyncHTTPTransport(uds=self.socket_path)
@@ -212,6 +226,7 @@ class WasmRuntime:
         body: dict[str, Any],
         *,
         open_owner: str | None = None,
+        snapshot: WasmInvocation | None = None,
     ) -> tuple[int, dict[str, Any]]:
         """(status, answer) for one call, in the stub's shapes.
 
@@ -219,7 +234,7 @@ class WasmRuntime:
         in the open lane, and a full lane answers 503 (a platform refusal: a claimed payment
         is released). None: the operator's agent or one of an owner it admitted.
         """
-        source = self.stored_handler(slug)
+        source = snapshot.source if snapshot is not None else self.stored_handler(slug)
         if not source:
             result: dict[str, Any] = {
                 "echo": body,
@@ -231,9 +246,9 @@ class WasmRuntime:
             if open_owner is not None and not await self.open_lane.enter(open_owner):
                 return 503, {"ok": False, "error": LANE_BUSY}
             try:
-                status, outcome = await self._run_with_egress(slug, source, body)
-            except httpx.HTTPError:
-                return 502, {"ok": False, "error": "sandbox runner unreachable"}
+                status, outcome = await self._run_with_egress(
+                    slug, source, body, hosts=snapshot.egress_hosts if snapshot else None
+                )
             finally:
                 if open_owner is not None:
                     self.open_lane.leave(open_owner)
@@ -242,11 +257,12 @@ class WasmRuntime:
             if status != 200:
                 return 502, {"ok": False, "error": "sandbox runner refused the call"}
             kind = outcome.get("kind")
+            if isinstance(kind, str) and kind in _STATUS:
+                return _STATUS[kind], {"ok": False, "error": str(outcome.get("error") or kind)[:300]}
             if kind != "ok" or not isinstance(outcome.get("result"), dict):
-                code = _STATUS.get(str(kind), 502)
-                return code, {"ok": False, "error": str(outcome.get("error") or kind)[:300]}
+                raise MalformedTenantResponse("invalid sandbox result")
             result = outcome["result"]
-        signer = self._signer(slug)
+        signer = snapshot.signer if snapshot is not None else self._signer(slug)
         return 200, {
             "ok": True,
             "result": result,
@@ -260,13 +276,22 @@ class WasmRuntime:
         }
 
     async def _run_with_egress(self, slug: str, source: str,
-                               body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+                               body: dict[str, Any], *,
+                               hosts: tuple[str, ...] | None = None) -> tuple[int, dict[str, Any]]:
         """Run the handler; each time it asks for a response it does not have, fetch it (only
         from this agent's egress hosts) and run it again with every response so far."""
         fetched: dict[str, Any] = {}
         total = 0
         for _ in range(MAX_ROUNDS + 1):
-            status, outcome = await self._run(source, body, fetched)
+            try:
+                status, outcome = await self._run(source, body, fetched)
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+                if fetched:
+                    # A prior sandbox round may already have made an egress write.
+                    raise MalformedTenantResponse("sandbox continuation failed") from exc
+                raise
+            if status == 503 and fetched:
+                raise MalformedTenantResponse("sandbox continuation was refused")
             if status != 200 or outcome.get("kind") != "fetch":
                 return status, outcome
             raw = outcome.get("fetch")
@@ -281,7 +306,7 @@ class WasmRuntime:
             try:
                 if self.egress is None:
                     raise EgressRefused("this hearth gives agents no network")
-                request = EgressRequest.parse(raw, self.egress_hosts(slug))
+                request = EgressRequest.parse(raw, list(hosts) if hosts is not None else self.egress_hosts(slug))
                 response = await self.egress.fetch(slug, request)
             except EgressRefused as exc:
                 response = {"refused": str(exc)[:300]}

@@ -26,6 +26,9 @@ def tenant_edge(monkeypatch):
     async def read_capped(response):
         return await response.aread()
 
+    async def deliver_paid(row, claim, send):
+        return await send(None)
+
     async def wasm_edge(*args):
         raise AssertionError("HTTP tenant fixture must not use the WASM route")
 
@@ -39,10 +42,8 @@ def tenant_edge(monkeypatch):
     ))
     edge.register(
         _read_capped=read_capped,
-        _release_claim=lambda *args: None,
-        _release_on_platform_failure=lambda *args: None,
+        _deliver_paid=deliver_paid,
         _settle=settle,
-        _still_serving=lambda row: True,
         _suspended=lambda: set(),
         _terms_for=lambda row: object(),
         _wasm_edge=wasm_edge,

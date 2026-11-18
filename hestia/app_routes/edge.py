@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from hestia.names import holder_of
+from hestia.payments import decode_tenant_json, tenant_request_key
 from hestia.runtime.wasm import is_wasm
 from hestia.store import TenantStore
 
@@ -54,10 +57,8 @@ def edge_forward_headers(headers: Any) -> dict[str, str]:
 def register(
     *,
     _read_capped: Callable[..., Awaitable[Any]],
-    _release_claim: Callable[..., Any],
-    _release_on_platform_failure: Callable[..., Any],
+    _deliver_paid: Callable[..., Awaitable[Response]],
     _settle: Callable[..., Any],
-    _still_serving: Callable[..., Any],
     _suspended: Callable[..., Any],
     _terms_for: Callable[..., Any],
     _wasm_edge: Callable[..., Awaitable[Any]],
@@ -76,35 +77,49 @@ def register(
         # Only the paid door is gated. /health stays free so a buyer can see a
         # tenant is alive before paying it anything.
         claim = None
+        headers = edge_forward_headers(request.headers)
+        query = request.url.query
+        wasm = is_wasm(row.listen_url)
+        wasm_body = {}
         if path == "invoke" and request.method == "POST":
+            raw = await request.body()
+            if wasm:
+                try:
+                    wasm_body = json.loads(raw.decode() or "{}")
+                except (UnicodeDecodeError, ValueError):
+                    return JSONResponse(status_code=400, content={"ok": False, "error": "invalid json"})
+                if not isinstance(wasm_body, dict):
+                    return JSONResponse(status_code=400,
+                                        content={"ok": False, "error": "body must be an object"})
+                try:
+                    json.dumps(wasm_body, ensure_ascii=False, allow_nan=False).encode()
+                except ValueError:
+                    return JSONResponse(status_code=400, content={"ok": False, "error": "invalid json"})
             terms = _terms_for(row)
-            if terms is not None:
-                refusal, claim = _settle(
+            tx_hash = request.headers.get("x-payment", "").strip()
+            if terms is not None or tx_hash:
+                content_type = headers.get("content-type", "")
+                immediate, claim = await run_in_threadpool(
+                    _settle,
                     row,
                     terms,
-                    request.headers.get("x-payment", "").strip(),
+                    tx_hash,
                     request.headers.get("x-payment-nonce", "").strip(),
                     request.headers.get("x-payment-secret", "").strip(),
+                    tenant_request_key("edge", raw, query, content_type, headers.get("accept", "")),
                 )
-                if refusal is not None:
-                    return refusal
-        if is_wasm(row.listen_url):
-            return await _wasm_edge(row, path, request, claim)
+                if immediate is not None:
+                    return immediate
+        if wasm:
+            return await _wasm_edge(row, path, request.method, wasm_body, claim)
         target = f"{row.listen_url.rstrip('/')}/{path}"
-        query = request.url.query
         if query:
             # Already percent-encoded by the caller; dropping it silently blanked
             # every query parameter a tenant was handed.
             target = f"{target}?{query}"
         raw = await request.body()
-        headers = edge_forward_headers(request.headers)
-        if not _still_serving(row):
-            # The row was read before the body arrived and before any payment
-            # settled. If the tenant was stopped or moved meanwhile, its old
-            # address may already belong to someone else.
-            _release_claim(claim)
-            raise HTTPException(status_code=503, detail="tenant changed during the request; retry")
-        try:
+
+        async def send(_snapshot: Any) -> Response:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 async with client.stream(
                     request.method, target, content=raw, headers=headers
@@ -112,23 +127,8 @@ def register(
                     body = await _read_capped(streamed)
                     media = streamed.headers.get("content-type", "application/json")
                     status = streamed.status_code
-        except httpx.HTTPError as exc:
-            # The tenant is unreachable — the platform's fault, not the caller's.
-            # A payment already claimed for this call is released so the same
-            # transaction can be retried once the tenant is back.
-            _release_claim(claim)
-            raise HTTPException(status_code=502, detail="tenant unreachable") from exc
-        except HTTPException:
-            # An oversized tenant response (from _read_capped) delivered nothing —
-            # release the claim, same as an unreachable tenant.
-            _release_claim(claim)
-            raise
-        # A provider-side failure (5xx that is not the per-call deadline) gave the
-        # buyer nothing, so the claim is released; a 4xx (the caller's input was
-        # rejected) and a 504 (the call ran to its budget on that input) are billed.
-        _release_on_platform_failure(claim, status)
-        return Response(
-            content=body,
-            status_code=status,
-            media_type=media,
-        )
+            if claim and status == 200 and media.partition(";")[0].lower() == "application/json":
+                decode_tenant_json(body)
+            return Response(content=body, status_code=status, media_type=media)
+
+        return await _deliver_paid(row, claim, send)

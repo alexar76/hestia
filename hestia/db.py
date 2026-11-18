@@ -16,6 +16,7 @@ from typing import Any, Protocol, runtime_checkable
 _SQLITE_DUPLICATE = frozenset({2067, 1555})
 # Postgres SQLSTATE unique_violation.
 _PG_UNIQUE_VIOLATION = "23505"
+Statement = tuple[str, tuple[Any, ...]]
 
 
 def is_unique_violation(exc: BaseException) -> bool:
@@ -44,6 +45,10 @@ class LedgerBackend(Protocol):
     def execute_write(self, sql: str, params: tuple[Any, ...] = ()) -> int: ...
 
     def execute_script(self, statements: tuple[str, ...]) -> None: ...
+
+    def execute_transaction(
+        self, statements: tuple[Statement, ...], *, require_one: bool = False
+    ) -> bool: ...
 
     def close(self) -> None: ...
 
@@ -93,16 +98,29 @@ class SQLiteLedger:
 
     def execute_write(self, sql: str, params: tuple[Any, ...] = ()) -> int:
         with self._lock:
-            cur = self._conn.execute(sql, params)
-            self._conn.commit()
-            return int(cur.rowcount or 0)
+            try:
+                cur = self._conn.execute(sql, params)
+                self._conn.commit()
+                return int(cur.rowcount or 0)
+            except Exception:
+                self._conn.rollback()
+                raise
 
     def execute_script(self, statements: tuple[str, ...]) -> None:
+        self.execute_transaction(tuple((statement, ()) for statement in statements))
+
+    def execute_transaction(
+        self, statements: tuple[Statement, ...], *, require_one: bool = False
+    ) -> bool:
         with self._lock:
             try:
-                for statement in statements:
-                    self._conn.execute(statement)
+                self._conn.execute("BEGIN")
+                for sql, params in statements:
+                    if self._conn.execute(sql, params).rowcount != 1 and require_one:
+                        self._conn.rollback()
+                        return False
                 self._conn.commit()
+                return True
             except Exception:
                 self._conn.rollback()
                 raise
@@ -162,11 +180,19 @@ class PostgresLedger:
                 raise
 
     def execute_script(self, statements: tuple[str, ...]) -> None:
+        self.execute_transaction(tuple((statement, ()) for statement in statements))
+
+    def execute_transaction(
+        self, statements: tuple[Statement, ...], *, require_one: bool = False
+    ) -> bool:
         with self._pool.connection() as conn:
             try:
-                for statement in statements:
-                    conn.execute(statement)
+                for sql, params in statements:
+                    if conn.execute(translate_placeholders(sql), params).rowcount != 1 and require_one:
+                        conn.rollback()
+                        return False
                 conn.commit()
+                return True
             except Exception:
                 conn.rollback()
                 raise

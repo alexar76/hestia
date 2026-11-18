@@ -10,11 +10,16 @@ authorization over the nonce a 402 minted — there is no unbound payment.
 from __future__ import annotations
 
 import hashlib
+import os
+import time
+import uuid
 
+import httpx
 import pytest
 
 from hestia.config import Settings
 from hestia.payments import PaymentError, PaymentTerms, to_units, verify_transfer
+from hestia.store import TenantStore
 from tests.conftest import auth, client, deploy_payload
 
 TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
@@ -57,6 +62,8 @@ def fake_rpc(monkeypatch, *, to: str, units: int, token: str = USDC, nonce: str 
             def json() -> dict:
                 if method == "eth_blockNumber":
                     return {"result": hex(head)}
+                if method == "eth_getBlockByNumber":
+                    return {"result": {"timestamp": hex(int(time.time()))}}
                 seen["receipts"] += 1
                 return {
                     "result": {
@@ -231,10 +238,14 @@ def test_one_payment_buys_exactly_one_call(tmp_path, monkeypatch) -> None:
     api = client(tmp_path, **paid_settings(tmp_path).__dict__)
     deploy_priced(api)
     tx = pay(api, monkeypatch, tx="0x" + "c" * 64)
-    assert api.post("/t/paid/invoke", json={}, headers=tx).status_code == 200
+    first = api.post("/t/paid/invoke", json={}, headers=tx)
+    assert first.status_code == 200
+    monkeypatch.setattr("hestia.payments.httpx.post", lambda *a, **kw: pytest.fail("repeat looked up payment"))
+    api.app.state.stub._stop_all()
     second = api.post("/t/paid/invoke", json={}, headers=tx)
-    assert second.status_code == 402
-    assert "already been spent" in second.json()["detail"]
+    assert second.status_code == 200
+    assert second.content == first.content
+    assert api.app.state.store.payment_count("paid") == 1
 
 
 def test_the_routed_hub_door_charges_the_same(tmp_path, monkeypatch) -> None:
@@ -350,7 +361,7 @@ def test_a_single_broken_endpoint_still_reports_the_transport_failure(monkeypatc
                         require_nonce=NONCE)
 
 
-def test_payment_is_released_when_the_tenant_is_unreachable(tmp_path, monkeypatch) -> None:
+def test_payment_can_retry_when_the_tenant_is_unreachable(tmp_path, monkeypatch) -> None:
     """A wedged or crashed tenant is the platform's fault. The claimed payment
     is released so the buyer can retry the same transaction — otherwise an
     honest caller pays and gets a 502 with nothing to show for it."""
@@ -362,8 +373,9 @@ def test_payment_is_released_when_the_tenant_is_unreachable(tmp_path, monkeypatc
     api.app.state.stub._stop_all()
     res = api.post("/t/paid/invoke", json={}, headers=headers)
     assert res.status_code == 502
-    # The claim was released, so the ledger does not record the tx as spent.
-    assert api.app.state.store.payment_count("paid") == 0
+    assert api.app.state.store.payment_count("paid") == 1
+    nonce = nonce_for_secret(headers["X-Payment-Secret"])
+    assert api.app.state.store.payment_delivery(nonce)["state"] == "ready"
 
 
 def test_a_timed_out_call_keeps_the_payment(tmp_path, monkeypatch) -> None:
@@ -514,9 +526,8 @@ def test_max_age_zero_keeps_the_old_behaviour(monkeypatch) -> None:
     assert settled["paid_units"] == 4000
 
 
-def test_oversized_response_releases_a_claimed_payment(tmp_path, monkeypatch) -> None:
-    """A provider that over-produces delivered nothing to the buyer, so the
-    on-chain payment must not be spent on that undelivered call."""
+def test_oversized_success_is_fenced_for_reconciliation(tmp_path, monkeypatch) -> None:
+    """The provider already ran, even though its response cannot be delivered."""
     settings = {
         **paid_settings(tmp_path).__dict__,
         "max_tenant_response_bytes": 4096,
@@ -529,9 +540,9 @@ def test_oversized_response_releases_a_claimed_payment(tmp_path, monkeypatch) ->
     assert api.post("/v1/tenants", json=body, headers=auth(api)).status_code == 200
     res = api.post("/t/amp/invoke", json={},
                    headers=pay(api, monkeypatch, slug="amp", tx="0x" + "e" * 64))
-    assert res.status_code == 502
-    # The buyer got nothing, so the claim is released — the tx is not spent.
-    assert api.app.state.store.payment_count("amp") == 0
+    assert res.status_code == 409
+    assert res.json()["error"] == "payment_reconciliation_required"
+    assert api.app.state.store.payment_count("amp") == 1
 
 
 # ------------------------------------------- EIP-3009 binding (payment ↔ call)
@@ -547,7 +558,7 @@ def bound_settings(tmp_path) -> dict:
 
 
 def fake_rpc_bound(monkeypatch, *, to: str, units: int, nonce: str | None,
-                   token: str = USDC) -> None:
+                   token: str = USDC, mined_ts: int | None = None, head: int = 101) -> None:
     """A node whose receipt carries a Transfer and, when `nonce` is given, the
     EIP-3009 AuthorizationUsed log the token contract emits for it."""
     def _post(url, json=None, timeout=None):  # noqa: A002
@@ -561,7 +572,9 @@ def fake_rpc_bound(monkeypatch, *, to: str, units: int, nonce: str | None,
             @staticmethod
             def json() -> dict:
                 if method == "eth_blockNumber":
-                    return {"result": hex(101)}
+                    return {"result": hex(head)}
+                if method == "eth_getBlockByNumber":
+                    return {"result": {"timestamp": hex(mined_ts if mined_ts is not None else int(time.time()))}}
                 # FiatToken's order: the authorization is marked used, then its transfer.
                 logs = []
                 if nonce is not None:
@@ -715,13 +728,210 @@ def test_an_expired_nonce_is_refused(tmp_path, monkeypatch) -> None:
     deploy_priced(api)
     q = _quote(api)
     nonce = q["nonce"]
-    fake_rpc_bound(monkeypatch, to=OWNER, units=4000, nonce=nonce)
+    fake_rpc_bound(monkeypatch, to=OWNER, units=4000, nonce=nonce,
+                   mined_ts=int(q["expires_at"]) + 1)
     res = api.post(
         "/t/paid/invoke", json={},
         headers={"X-Payment": "0x" + "3" * 64, "X-Payment-Nonce": nonce, "X-Payment-Secret": q["payment_secret"]},
     )
     assert res.status_code == 402
     assert "expired" in res.json()["detail"]
+
+
+@pytest.mark.parametrize("price", [0.001, 0.009, 0.0])
+def test_original_quote_survives_price_and_payee_changes(tmp_path, monkeypatch, price) -> None:
+    api = client(tmp_path, **bound_settings(tmp_path))
+    deploy_priced(api)
+    quote = _quote(api)
+    deploy_priced(api, price=price, payout=BUYER)
+    headers = pay(api, monkeypatch, quote=quote)
+    response = api.post("/t/paid/invoke", json={}, headers=headers)
+    assert response.status_code == 200, response.text
+    assert api.app.state.store.payment_count("paid") == 1
+
+
+def test_transfer_mined_before_expiry_can_be_redeemed_afterward(tmp_path, monkeypatch) -> None:
+    api = client(tmp_path, **{**bound_settings(tmp_path), "payment_max_age_s": 3600})
+    deploy_priced(api)
+    quote = _quote(api)
+    expired = int(time.time()) - 7200
+    api.app.state.store.backend.execute_write(
+        "UPDATE tenant_invoices SET issued_at = ?, expires_at = ? WHERE nonce = ?",
+        (expired - 900, expired, quote["nonce"]),
+    )
+    fake_rpc_bound(monkeypatch, to=OWNER, units=4000, nonce=quote["nonce"], mined_ts=expired - 10)
+    response = api.post("/t/paid/invoke", json={}, headers={
+        "X-Payment": "0x" + "f" * 64, "X-Payment-Secret": quote["payment_secret"],
+    })
+    assert response.status_code == 200, response.text
+
+
+def test_pending_confirmation_preserves_the_original_quote(tmp_path, monkeypatch) -> None:
+    api = client(tmp_path, **{**bound_settings(tmp_path), "payment_min_confirmations": 2})
+    deploy_priced(api)
+    quote = _quote(api)
+    headers = {"X-Payment": "0x" + "e" * 64, "X-Payment-Secret": quote["payment_secret"]}
+    fake_rpc_bound(monkeypatch, to=OWNER, units=4000, nonce=quote["nonce"], head=100)
+    pending = api.post("/t/paid/invoke", json={}, headers=headers)
+    assert pending.status_code == 409
+    assert pending.json()["error"] == "payment_confirmation_pending"
+    assert pending.json()["nonce"] == quote["nonce"]
+    assert pending.json()["tx_hash"] == headers["X-Payment"]
+    assert api.app.state.store.backend.execute("SELECT COUNT(*) AS n FROM tenant_invoices")[0]["n"] == 1
+    fake_rpc_bound(monkeypatch, to=OWNER, units=4000, nonce=quote["nonce"], head=101)
+    assert api.post("/t/paid/invoke", json={}, headers=headers).status_code == 200
+
+
+def test_legacy_invoice_requires_an_unchanged_payee(tmp_path, monkeypatch) -> None:
+    api = client(tmp_path, **bound_settings(tmp_path))
+    deploy_priced(api)
+    quote = _quote(api)
+    api.app.state.store.backend.execute_write(
+        "UPDATE tenant_invoices SET owner_pubkey = '' WHERE nonce = ?", (quote["nonce"],),
+    )
+    deploy_priced(api, payout=BUYER)
+    headers = pay(api, monkeypatch, quote=quote)
+    response = api.post("/t/paid/invoke", json={}, headers=headers)
+    assert response.status_code == 409
+    assert response.json()["error"] == "payment_reconciliation_required"
+    assert api.app.state.store.payment_count("paid") == 0
+
+
+def test_legacy_consumed_invoice_without_a_delivery_fence_requires_reconciliation(
+    tmp_path, monkeypatch,
+) -> None:
+    api = client(tmp_path, **bound_settings(tmp_path))
+    deploy_priced(api)
+    quote = _quote(api)
+    headers = pay(api, monkeypatch, quote=quote)
+    api.app.state.store.backend.execute_write(
+        "UPDATE tenant_invoices SET consumed_at = ?, tx_hash = ? WHERE nonce = ?",
+        (time.time(), headers["X-Payment"], quote["nonce"]),
+    )
+    response = api.post("/t/paid/invoke", json={}, headers=headers)
+    assert response.status_code == 409
+    assert response.json()["error"] == "payment_reconciliation_required"
+    assert api.app.state.store.payment_count("paid") == 0
+
+
+def test_a_verified_payment_survives_interruption_before_dispatch(tmp_path, monkeypatch) -> None:
+    api = client(tmp_path, **bound_settings(tmp_path))
+    deploy_priced(api)
+    quote = _quote(api)
+    headers = pay(api, monkeypatch, quote=quote)
+    store = api.app.state.store
+
+    def interrupt(*_args):
+        raise RuntimeError("stopped before dispatch")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "start_payment_delivery", interrupt)
+        with pytest.raises(RuntimeError, match="before dispatch"):
+            api.post("/t/paid/invoke", json={}, headers=headers)
+    reopened = TenantStore.sqlite(store.backend.path)
+    try:
+        assert reopened.payment_delivery(quote["nonce"])["state"] == "ready"
+        assert reopened.payment_count("paid") == 1
+    finally:
+        reopened.close()
+
+    monkeypatch.setattr("hestia.payments.httpx.post", lambda *a, **kw: pytest.fail("retry looked up payment"))
+    assert api.post("/t/paid/invoke", json={}, headers=headers).status_code == 200
+
+
+def test_interruption_after_dispatch_stays_fenced(tmp_path, monkeypatch) -> None:
+    api = client(tmp_path, **bound_settings(tmp_path))
+    deploy_priced(api)
+    quote = _quote(api)
+    headers = pay(api, monkeypatch, quote=quote)
+    store = api.app.state.store
+
+    def interrupt(*_args, **_kwargs):
+        raise RuntimeError("stopped after dispatch")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "finish_payment_delivery", interrupt)
+        with pytest.raises(RuntimeError, match="after dispatch"):
+            api.post("/t/paid/invoke", json={}, headers=headers)
+    assert store.payment_delivery(quote["nonce"])["state"] == "running"
+    api.app.state.stub._stop_all()
+    repeat = api.post("/t/paid/invoke", json={}, headers=headers)
+    assert repeat.status_code == 409
+    assert repeat.json()["error"] == "payment_reconciliation_required"
+
+
+def test_edge_retry_is_bound_to_forwarded_bytes(tmp_path, monkeypatch) -> None:
+    api = client(tmp_path, **bound_settings(tmp_path))
+    deploy_priced(api)
+    payment = pay(api, monkeypatch)
+    headers = {"Content-Type": "application/json", **payment}
+    first = api.post("/t/paid/invoke", content=b'{"a":1}', headers=headers)
+    assert first.status_code == 200
+    retry = api.post("/t/paid/invoke", content=b'{ "a": 1 }', headers=headers)
+    assert retry.status_code == 409
+    assert retry.json()["error"] == "payment_request_mismatch"
+
+
+@pytest.mark.parametrize("route", ["/t/paid/invoke", "/ai-market/v2/invoke"])
+@pytest.mark.parametrize("outcome", ["invalid_json", "nonstandard_json", "provider_error", "read_timeout"])
+def test_ambiguous_provider_outcome_stays_fenced(tmp_path, monkeypatch, route, outcome) -> None:
+    api = client(tmp_path, **bound_settings(tmp_path))
+    deploy_priced(api)
+    quote = _quote(api)
+    headers = pay(api, monkeypatch, quote=quote)
+    calls = []
+
+    def send(request):
+        calls.append(request)
+        if outcome == "read_timeout":
+            raise httpx.ReadTimeout("fixture lost response after dispatch", request=request)
+        if outcome == "provider_error":
+            return httpx.Response(500, json={"error": "fixture provider error"})
+        if outcome == "nonstandard_json":
+            return httpx.Response(200, headers={"content-type": "application/json"}, content=b'{"a":NaN}')
+        return httpx.Response(200, headers={"content-type": "application/json"}, content=b"not JSON")
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: async_client(
+        transport=httpx.MockTransport(send), **kwargs,
+    ))
+    payload = {} if route.startswith("/t/") else {"capability_id": "paid.thing@v1", "input": {}}
+    for _ in range(2):
+        response = api.post(route, json=payload, headers=headers)
+        assert response.status_code == 409, response.text
+        assert response.json()["error"] == "payment_reconciliation_required"
+    assert len(calls) == 1
+    assert api.app.state.store.payment_delivery(quote["nonce"])["state"] == "reconciliation_required"
+
+
+@pytest.mark.parametrize("postgres", [False, True])
+def test_claim_invoice_rolls_back_when_the_authorization_already_exists(tmp_path, postgres) -> None:
+    database_url = os.getenv("HESTIA_TEST_DATABASE_URL", "") if postgres else ""
+    if postgres and not database_url:
+        pytest.skip("set HESTIA_TEST_DATABASE_URL to a scratch Postgres")
+    store = TenantStore.open(data_dir=tmp_path, database_url=database_url)
+    try:
+        tx = "0x" + uuid.uuid4().hex * 2
+        nonce = "0x" + uuid.uuid4().hex * 2
+        common = dict(chain="base", token="USDC", pay_to=OWNER)
+        store.mint_invoice(nonce=nonce, slug="paid", capability_id="paid.thing@v1",
+                           token_contract=USDC, amount_units=4000, ttl_s=900, **common)
+        assert store.claim_payment(tx_hash=f"{tx}:{nonce}", slug="compute", paid_units=4000, **common)
+        assert not store.claim_invoice_payment(
+            nonce=nonce, tx_hash=tx, slug="paid", paid_units=4000, request_key="input", **common,
+        )
+        assert store.invoice(nonce)["consumed_at"] == 0
+        assert store.payment_delivery(nonce) is None
+        store.release_payment(f"{tx}:{nonce}")
+        assert store.claim_invoice_payment(
+            nonce=nonce, tx_hash=tx, slug="paid", paid_units=4000, request_key="input", **common,
+        )
+        assert store.start_payment_delivery(nonce, tx, "input")
+        assert not store.start_payment_delivery(nonce, tx, "input")
+        assert store.finish_payment_delivery(nonce, tx, "input", status_code=200)
+        assert store.payment_delivery(nonce)["state"] == "complete"
+    finally:
+        store.close()
 
 
 def test_a_nonce_from_another_tenant_is_refused(tmp_path, monkeypatch) -> None:
@@ -739,11 +949,10 @@ def test_a_nonce_from_another_tenant_is_refused(tmp_path, monkeypatch) -> None:
     assert "unknown payment nonce" in res.json()["detail"]
 
 
-def test_a_platform_failure_gives_back_both_the_payment_and_the_nonce(
+def test_a_pre_dispatch_failure_preserves_the_payment_for_the_same_input(
     tmp_path, monkeypatch
 ) -> None:
-    """Releasing only the transaction would leave the buyer with a burned nonce
-    and no way to retry the payment they already made."""
+    """The verified payment stays reusable without another transfer or verification."""
     api = client(tmp_path, **bound_settings(tmp_path))
     deploy_priced(api)
     q = _quote(api)
@@ -755,9 +964,16 @@ def test_a_platform_failure_gives_back_both_the_payment_and_the_nonce(
         headers={"X-Payment": "0x" + "5" * 64, "X-Payment-Nonce": nonce, "X-Payment-Secret": q["payment_secret"]},
     )
     assert res.status_code == 502
-    assert api.app.state.store.payment_count("paid") == 0
+    assert api.app.state.store.payment_count("paid") == 1
     invoice = api.app.state.store.invoice(nonce)
-    assert float(invoice["consumed_at"]) == 0, "the nonce must be reusable"
+    assert invoice["tx_hash"] == "0x" + "5" * 64
+    assert api.app.state.store.payment_delivery(nonce)["state"] == "ready"
+    mismatched = api.post(
+        "/t/paid/invoke", json={"different": True},
+        headers={"X-Payment": invoice["tx_hash"], "X-Payment-Secret": q["payment_secret"]},
+    )
+    assert mismatched.status_code == 409
+    assert mismatched.json()["error"] == "payment_request_mismatch"
 
 
 # ----------------------------------------- who may redeem (the nonce is public once mined)
@@ -818,6 +1034,8 @@ def fake_rpc_logs(monkeypatch, logs: list[dict]) -> None:
             def json() -> dict:
                 if method == "eth_blockNumber":
                     return {"result": hex(101)}
+                if method == "eth_getBlockByNumber":
+                    return {"result": {"timestamp": hex(int(time.time()))}}
                 return {"result": {"status": "0x1", "blockNumber": hex(100), "logs": logs}}
 
         return R()
@@ -884,13 +1102,17 @@ def test_two_payments_in_one_transaction_buy_two_calls(tmp_path, monkeypatch) ->
         auth_used(BUYER, second["nonce"]), transfer(BUYER, OWNER, 4000),
     ])
     tx = "0x" + "5" * 64
+    responses = []
     for q in (first, second):
         res = api.post("/t/paid/invoke", json={},
                        headers={"X-Payment": tx, "X-Payment-Secret": q["payment_secret"]})
         assert res.status_code == 200, res.text
+        responses.append(res.content)
+    api.app.state.stub._stop_all()
     again = api.post("/t/paid/invoke", json={},
                      headers={"X-Payment": tx, "X-Payment-Secret": first["payment_secret"]})
-    assert again.status_code == 402
+    assert again.status_code == 200
+    assert again.content == responses[0]
     assert api.app.state.store.payment_count("paid") == 2
 
 

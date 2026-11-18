@@ -19,7 +19,9 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
+import httpx
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from fastapi.testclient import TestClient
@@ -33,6 +35,7 @@ from hestia.scan import HandlerDenied, lint_wasm_handler
 from hestia.signing import _canonical_receipt
 from hestia.wasm_runner import _UnixHTTPServer, make_handler
 from tests.conftest import auth, capability, deploy_payload
+from tests.test_payments import bound_settings, deploy_priced, pay
 
 MONOREPO = Path(__file__).resolve().parent.parent.parent
 WASM_ROOT = Path(os.environ.get("HESTIA_WASM_ROOT", "/opt/python-wasi"))
@@ -173,6 +176,64 @@ def test_a_dead_runner_is_a_platform_failure(tmp_path) -> None:
     c.post("/v1/tenants", json=deploy_payload(handler=HANDLER), headers=auth(c))
     out = c.post("/t/demo-echo/invoke", json={})
     assert out.status_code == 502 and "unreachable" in out.json()["error"]
+
+
+def test_paid_wasm_invocation_keeps_the_checked_handler(tmp_path, monkeypatch, scripted_runner) -> None:
+    socket_path, sandbox = scripted_runner
+    c = wasm_client(tmp_path, socket_path, **{
+        **bound_settings(tmp_path), "runtime": "wasm", "runner_socket": socket_path,
+    })
+    deploy_priced(c)
+    headers = pay(c, monkeypatch)
+    runtime = c.app.state.stub
+    original = runtime.stored_handler("paid")
+    invoke = runtime.invoke
+
+    async def send(*args, **kwargs):
+        monkeypatch.setattr(runtime, "stored_handler", lambda _slug: "replacement handler")
+        return await invoke(*args, **kwargs)
+
+    monkeypatch.setattr(runtime, "invoke", send)
+    response = c.post("/t/paid/invoke", json={}, headers=headers)
+    assert response.status_code == 200, response.text
+    assert sandbox.calls == [(original, {})]
+
+
+@pytest.mark.parametrize("outcome", ["busy", "unreachable"])
+def test_paid_wasm_continuation_after_egress_is_ambiguous(tmp_path, monkeypatch, outcome) -> None:
+    socket_path = os.path.join(short_socket_dir(), "absent.sock")
+    c = wasm_client(tmp_path, socket_path, **{
+        **bound_settings(tmp_path), "runtime": "wasm", "runner_socket": socket_path,
+    })
+    deploy_priced(c)
+    headers = pay(c, monkeypatch)
+    runtime = c.app.state.stub
+    sent = []
+    runs = []
+
+    async def run(_source, _body, fetched):
+        runs.append(fetched)
+        if not fetched:
+            return 200, {"kind": "fetch", "fetch": {
+                "method": "POST", "url": "https://example.invalid/order", "body": "fixture",
+            }}
+        if outcome == "busy":
+            return 503, {"error": "runner busy"}
+        raise httpx.ConnectError("runner unavailable in subsequent round")
+
+    async def fetch(_slug, request):
+        sent.append(request)
+        return {"text": "fixture response"}
+
+    monkeypatch.setattr(runtime, "_run", run)
+    monkeypatch.setattr(runtime, "egress_hosts", lambda _slug: ["example.invalid"])
+    monkeypatch.setattr(runtime, "egress", SimpleNamespace(fetch=fetch))
+    for _ in range(2):
+        response = c.post("/t/paid/invoke", json={}, headers=headers)
+        assert response.status_code == 409, response.text
+        assert response.json()["error"] == "payment_reconciliation_required"
+    assert len(runs) == 2
+    assert len(sent) == 1
 
 
 def test_bad_bodies_are_refused_at_the_door(tmp_path, scripted_runner) -> None:

@@ -213,6 +213,23 @@ MIGRATION_010_OPEN_CODE_RIGHT: tuple[str, ...] = (
     "UPDATE owners SET may_run_code = 0 WHERE admitted_by = 'open' AND label = 'open signup'",
 )
 
+# Only a ready payment can start tenant work. A running payment has crossed that
+# boundary, so a restart cannot dispatch it again without knowing the outcome.
+MIGRATION_011_PAYMENT_DELIVERIES: tuple[str, ...] = (
+    "ALTER TABLE tenant_invoices ADD COLUMN owner_pubkey TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE tenant_invoices ADD COLUMN chain_id INTEGER NOT NULL DEFAULT 0",
+    """
+    CREATE TABLE tenant_payment_deliveries (
+        nonce TEXT PRIMARY KEY REFERENCES tenant_invoices (nonce),
+        request_key TEXT NOT NULL,
+        state TEXT NOT NULL,
+        status_code INTEGER NOT NULL DEFAULT 0,
+        content_type TEXT NOT NULL DEFAULT '',
+        body_b64 TEXT NOT NULL DEFAULT ''
+    )
+    """.strip(),
+)
+
 # (version, name, statements). statements have no IF NOT EXISTS on product tables.
 # statements is a tuple for every backend, or a dict keyed by backend_type.
 MIGRATIONS: list[tuple[int, str, tuple[str, ...] | dict[str, tuple[str, ...]]]] = [
@@ -226,6 +243,7 @@ MIGRATIONS: list[tuple[int, str, tuple[str, ...] | dict[str, tuple[str, ...]]]] 
     (8, "008_names", MIGRATION_008_NAMES),
     (9, "009_owner_admission", MIGRATION_009_OWNER_ADMISSION),
     (10, "010_open_code_right", MIGRATION_010_OPEN_CODE_RIGHT),
+    (11, "011_payment_deliveries", MIGRATION_011_PAYMENT_DELIVERIES),
 ]
 
 
@@ -251,11 +269,12 @@ def apply_migrations(backend: LedgerBackend) -> int:
             if version in applied:
                 continue
             try:
-                backend.execute_script(statements_for(statements, backend.backend_type))
-                backend.execute_write(
+                ddl = tuple((sql, ()) for sql in statements_for(statements, backend.backend_type))
+                bookkeeping = (
                     "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
                     (version, name, time.time()),
                 )
+                backend.execute_transaction((*ddl, bookkeeping))
             except Exception as exc:
                 raise MigrationError(f"migration {name} failed: {exc}") from exc
         _assert_tenant_columns(backend)

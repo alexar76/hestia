@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from hestia.db import LedgerBackend, is_unique_violation, open_ledger
+from hestia.db import LedgerBackend, Statement, is_unique_violation, open_ledger
 from hestia.migrations import apply_migrations, current_version
 
 # Not served, not listed, and retried by the next docker reconcile (at boot or
@@ -246,20 +246,22 @@ class TenantStore:
         tx, _, nonce = key.partition(":")
         if not nonce:
             return False
-        if self.backend.execute("SELECT 1 FROM tenant_payments WHERE tx_hash = ?", (tx,)):
-            return False
-        try:
-            self.backend.execute_write(
-                "INSERT INTO tenant_payments "
-                "(tx_hash, slug, chain, token, paid_units, pay_to, spent_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (key, slug, chain, token, str(paid_units), pay_to.lower(), time.time()),
-            )
-        except Exception as exc:
-            if is_unique_violation(exc):
-                return False
-            raise
-        return True
+        return bool(self.backend.execute_write(
+            *self._insert_payment(tx, key, slug, chain, token, paid_units, pay_to)
+        ))
+
+    @staticmethod
+    def _insert_payment(
+        tx: str, key: str, slug: str, chain: str, token: str, paid_units: int, pay_to: str
+    ) -> Statement:
+        return (
+            "INSERT INTO tenant_payments "
+            "(tx_hash, slug, chain, token, paid_units, pay_to, spent_at) "
+            "SELECT ?, ?, ?, ?, ?, ?, ? "
+            "WHERE NOT EXISTS (SELECT 1 FROM tenant_payments WHERE tx_hash = ?) "
+            "ON CONFLICT (tx_hash) DO NOTHING",
+            (key, slug, chain, token, str(paid_units), pay_to.lower(), time.time(), tx),
+        )
 
     def release_payment(self, tx_hash: str) -> None:
         """Un-spend a payment so its transaction can buy a call again.
@@ -276,6 +278,7 @@ class TenantStore:
     def mint_invoice(
         self, *, nonce: str, slug: str, capability_id: str, chain: str, token: str,
         token_contract: str, pay_to: str, amount_units: int, ttl_s: int,
+        owner_pubkey: str = "", chain_id: int = 0,
     ) -> dict[str, Any]:
         """Record what a 402 promised, so settlement checks the terms the hearth
         quoted rather than the terms the caller claims."""
@@ -291,16 +294,18 @@ class TenantStore:
             "amount_units": str(amount_units),
             "issued_at": now,
             "expires_at": now + ttl_s,
+            "owner_pubkey": owner_pubkey,
+            "chain_id": chain_id,
         }
         self.backend.execute_write(
             "INSERT INTO tenant_invoices "
             "(nonce, slug, capability_id, chain, token, token_contract, pay_to, "
-            " amount_units, issued_at, expires_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " amount_units, issued_at, expires_at, owner_pubkey, chain_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 row["nonce"], slug, capability_id, chain, token,
                 row["token_contract"], row["pay_to"], row["amount_units"],
-                now, row["expires_at"],
+                now, row["expires_at"], owner_pubkey, chain_id,
             ),
         )
         return row
@@ -311,25 +316,67 @@ class TenantStore:
         )
         return dict(rows[0]) if rows else None
 
-    def consume_invoice(self, nonce: str, tx_hash: str) -> bool:
-        """Spend an invoice exactly once. False when it was already spent.
-
-        The UPDATE carries the `consumed_at = 0` test, so two calls racing on the
-        same nonce are decided by the database — one row updated, one not."""
-        changed = self.backend.execute_write(
-            "UPDATE tenant_invoices SET consumed_at = ?, tx_hash = ? "
-            "WHERE nonce = ? AND consumed_at = 0",
-            (time.time(), tx_hash.lower(), nonce.lower()),
+    def claim_invoice_payment(
+        self, *, nonce: str, tx_hash: str, slug: str, chain: str, token: str,
+        paid_units: int, pay_to: str, request_key: str,
+    ) -> bool:
+        """Bind the verified authorization and one ready delivery in a single commit."""
+        nonce, tx = nonce.lower(), tx_hash.lower()
+        return self.backend.execute_transaction(
+            (
+                (
+                    "UPDATE tenant_invoices SET consumed_at = ?, tx_hash = ? "
+                    "WHERE nonce = ? AND slug = ? AND consumed_at = 0",
+                    (time.time(), tx, nonce, slug),
+                ),
+                self._insert_payment(tx, f"{tx}:{nonce}", slug, chain, token, paid_units, pay_to),
+                (
+                    "INSERT INTO tenant_payment_deliveries (nonce, request_key, state) "
+                    "VALUES (?, ?, 'ready')",
+                    (nonce, request_key),
+                ),
+            ),
+            require_one=True,
         )
-        return bool(changed)
 
-    def release_invoice(self, nonce: str) -> None:
-        """Un-spend an invoice whose call then failed on the platform's side, so
-        the buyer can retry with the payment they already made."""
-        self.backend.execute_write(
-            "UPDATE tenant_invoices SET consumed_at = 0, tx_hash = '' WHERE nonce = ?",
-            (nonce.lower(),),
+    def payment_delivery(self, nonce: str) -> dict[str, Any] | None:
+        rows = self.backend.execute(
+            "SELECT d.*, i.tx_hash FROM tenant_payment_deliveries d "
+            "JOIN tenant_invoices i ON i.nonce = d.nonce WHERE d.nonce = ?",
+            (nonce,),
         )
+        return rows[0] if rows else None
+
+    def start_payment_delivery(self, nonce: str, tx: str, request_key: str) -> bool:
+        """Fence the provider call, including across process restarts."""
+        return bool(self.backend.execute_write(
+            "UPDATE tenant_payment_deliveries SET state = 'running' "
+            "WHERE nonce = ? AND request_key = ? AND state = 'ready' "
+            "AND EXISTS (SELECT 1 FROM tenant_invoices WHERE nonce = ? AND tx_hash = ?)",
+            (nonce, request_key, nonce, tx),
+        ))
+
+    def finish_payment_delivery(
+        self, nonce: str, tx: str, request_key: str, *, status_code: int,
+        content_type: str = "", body_b64: str = "",
+    ) -> bool:
+        state = "complete" if status_code else "reconciliation_required"
+        return bool(self.backend.execute_write(
+            "UPDATE tenant_payment_deliveries "
+            "SET state = ?, status_code = ?, content_type = ?, body_b64 = ? "
+            "WHERE nonce = ? AND request_key = ? AND state = 'running' "
+            "AND EXISTS (SELECT 1 FROM tenant_invoices WHERE nonce = ? AND tx_hash = ?)",
+            (state, status_code, content_type, body_b64, nonce, request_key, nonce, tx),
+        ))
+
+    def retry_payment_delivery(self, nonce: str, tx: str, request_key: str) -> bool:
+        """Retry work proven to have been rejected before execution."""
+        return bool(self.backend.execute_write(
+            "UPDATE tenant_payment_deliveries SET state = 'ready' "
+            "WHERE nonce = ? AND request_key = ? AND state = 'running' "
+            "AND EXISTS (SELECT 1 FROM tenant_invoices WHERE nonce = ? AND tx_hash = ?)",
+            (nonce, request_key, nonce, tx),
+        ))
 
     def payment_count(self, slug: str) -> int:
         rows = self.backend.execute(

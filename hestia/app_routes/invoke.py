@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable
-from dataclasses import replace
+from base64 import b64decode, b64encode
+from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
 from typing import Any
 
@@ -37,21 +37,26 @@ from hestia.compute import (
 from hestia.config import Settings
 from hestia.hub_billing import billing_block, hub_for_key
 from hestia.models import DeployRequest
+from hestia.names import holder_of
 from hestia.owners import OwnerProofError, canonical_owner_key
 from hestia.payments import (
+    MalformedTenantResponse,
     PaymentError,
+    PaymentPending,
     PaymentTerms,
+    decode_tenant_json,
     is_address,
     is_nonce,
     is_secret,
     mint_secret,
     nonce_for_secret,
     opens,
+    tenant_request_key,
     to_units,
     verify_transfer,
 )
 from hestia.runtime.stub import StubRuntime
-from hestia.runtime.wasm import WasmRuntime, is_wasm
+from hestia.runtime.wasm import WasmInvocation, WasmRuntime, is_wasm
 from hestia.signing import ProviderSigner
 from hestia.store import TenantRow, TenantStore
 
@@ -68,6 +73,7 @@ def register(
     compute_limits: Limits,
     compute_slots: Any,
     hearth: Callable[..., Any],
+    lifecycle: Callable[..., Any],
     settings: Settings,
     signer: ProviderSigner,
     store: TenantStore,
@@ -132,16 +138,23 @@ def register(
                 )
             claim = None
             terms = _terms_for(tenant)
-            if terms is not None:
-                refusal, claim = _settle(
+            tx_hash = request.headers.get("x-payment", "").strip()
+            if terms is not None or tx_hash:
+                try:
+                    request_key = tenant_request_key("routed", inner)
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail="input is not valid JSON") from exc
+                immediate, claim = await run_in_threadpool(
+                    _settle,
                     tenant,
                     terms,
-                    request.headers.get("x-payment", "").strip(),
+                    tx_hash,
                     request.headers.get("x-payment-nonce", "").strip(),
                     request.headers.get("x-payment-secret", "").strip(),
+                    request_key,
                 )
-                if refusal is not None:
-                    return refusal
+                if immediate is not None:
+                    return immediate
             return await _invoke_tenant(tenant, inner, claim)
         raise HTTPException(status_code=404, detail="unknown capability")
 
@@ -201,6 +214,8 @@ def register(
             pay_to=terms.pay_to,
             amount_units=terms.amount_units,
             ttl_s=settings.payment_invoice_ttl_s,
+            owner_pubkey=holder_of(row.owner_pubkey),
+            chain_id=terms.chain_id,
         )
         accept.setdefault("extra", {})
         accept["extra"] = {**accept["extra"], "nonce": nonce}
@@ -242,31 +257,34 @@ def register(
             headers={"X-Payment-Required": "exact", "X-Payment-Nonce": nonce},
         )
 
-    def _release_claim(claim: Claim | None) -> None:
-        """Give back everything a failed call had taken: the spent transaction
-        and the invoice nonce. Releasing only the transaction would leave the
-        buyer with a burned nonce and no way to retry."""
-        if claim is None:
-            return
-        store.release_payment(claim.tx_hash)
-        if claim.nonce:
-            store.release_invoice(claim.nonce)
-
-    def _release_on_platform_failure(claim: Claim | None, status: int) -> None:
-        """Un-spend a claim when the tenant failed on the platform's side and
-        delivered nothing. A 5xx other than 504 (the per-call deadline, which the
-        caller's own input consumed) is a platform/provider failure; a 4xx
-        rejected the caller's input. Only the former releases."""
-        if claim and 500 <= status < 600 and status != 504:
-            _release_claim(claim)
+    def _delivery_response(state: dict[str, Any]) -> Response:
+        if state["state"] == "complete":
+            content_type = state["content_type"]
+            return Response(
+                content=b64decode(state["body_b64"]),
+                status_code=state["status_code"],
+                headers={"content-type": content_type} if content_type else None,
+            )
+        return JSONResponse(status_code=409, content={
+            "ok": False,
+            "error": "payment_reconciliation_required",
+            "detail": "the payment was accepted and delivery may already be running or complete",
+        })
 
     def _settle(
-        row: TenantRow, terms: PaymentTerms, tx_hash: str, nonce: str = "", secret: str = ""
-    ) -> tuple[JSONResponse | None, Claim | None]:
-        """(refusal, claim). refusal is None when the call may proceed; the claim
-        names what to release if the tenant then fails on the platform's side."""
+        row: TenantRow, terms: PaymentTerms | None, tx_hash: str, nonce: str,
+        secret: str, request_key: str,
+    ) -> tuple[Response | None, Claim | None]:
+        """Resolve a quote or a durable retry before dispatching a tenant call."""
+        def refuse(detail: str) -> tuple[JSONResponse, None]:
+            if terms is not None:
+                return _payment_required(row, terms, detail), None
+            return JSONResponse(status_code=402, content={
+                "ok": False, "error": "payment_required", "detail": detail,
+            }), None
+
         if not tx_hash:
-            return _payment_required(row, terms, "this capability is priced"), None
+            return refuse("this capability is priced")
 
         nonce = (nonce or "").strip().lower()
         secret = (secret or "").strip().lower()
@@ -275,73 +293,95 @@ def register(
         # for something else also satisfies. The secret shows WHO may settle it:
         # the nonce is on chain for anyone to copy once the payment is mined.
         if not is_secret(secret):
-            return _payment_required(
-                row, terms,
+            return refuse(
                 "send X-Payment-Secret with the payment_secret from the 402 you "
                 "paid: the nonce and the transaction are public once mined, so "
                 "they cannot show who paid",
-            ), None
+            )
         if not nonce:
             nonce = nonce_for_secret(secret)
         if not is_nonce(nonce):
-            return _payment_required(
-                row, terms,
+            return refuse(
                 "send X-Payment-Nonce with the nonce from this 402 and pay with "
                 "transferWithAuthorization signed over it",
-            ), None
+            )
         if not opens(secret, nonce):
-            return _payment_required(
-                row, terms, "that payment secret does not open this payment nonce",
-            ), None
+            return refuse("that payment secret does not open this payment nonce")
         invoice = store.invoice(nonce)
         if invoice is None or invoice["slug"] != row.slug:
-            return _payment_required(row, terms, "unknown payment nonce"), None
-        if float(invoice["consumed_at"] or 0) > 0:
-            return _payment_required(
-                row, terms, "that payment nonce has already been spent"
-            ), None
-        if time.time() > float(invoice["expires_at"]):
-            return _payment_required(
-                row, terms, "that payment nonce has expired; take a fresh 402"
-            ), None
-        if int(invoice["amount_units"]) > terms.amount_units:
-            # The quoted price is what the buyer must meet, even if the
-            # tenant has since been re-deployed cheaper.
-            terms = replace(terms, amount_units=int(invoice["amount_units"]))
+            return refuse("unknown payment nonce")
+        claim = Claim(tx_hash=tx_hash.lower(), nonce=nonce, request_key=request_key)
+        quoted_owner = invoice["owner_pubkey"]
+        same_seller = (
+            quoted_owner == holder_of(row.owner_pubkey) if quoted_owner
+            else invoice["pay_to"].lower() == row.payout_address.lower()
+        )
+        if invoice["capability_id"] != row.capability.get("capability_id") or not same_seller:
+            return JSONResponse(status_code=409, content={
+                "ok": False, "error": "payment_reconciliation_required",
+                "detail": "the quoted capability or seller has changed",
+            }), None
+
+        def existing() -> tuple[Response | None, Claim | None]:
+            delivery = store.payment_delivery(nonce)
+            if delivery is None and invoice["consumed_at"] and invoice["tx_hash"] == claim.tx_hash:
+                # Older rows cannot distinguish a crash before dispatch from a
+                # crash during release after an ambiguous provider outcome.
+                return _delivery_response({"state": "reconciliation_required"}), None
+            if delivery is None or delivery["tx_hash"] != claim.tx_hash:
+                return refuse("that payment nonce has already been spent")
+            if delivery["request_key"] != request_key:
+                return JSONResponse(status_code=409, content={
+                    "ok": False, "error": "payment_request_mismatch",
+                    "detail": "retry the original paid request with the same route and input",
+                }), None
+            if delivery["state"] == "ready":
+                return None, claim
+            return _delivery_response(delivery), None
+
+        if invoice["consumed_at"]:
+            return existing()
+        if not settings.payments_enabled or invoice["chain"] != settings.payment_chain or (
+            invoice["chain_id"] and invoice["chain_id"] != settings.payment_chain_id
+        ):
+            raise HTTPException(status_code=503, detail="quoted payment network is unavailable")
+        units = int(invoice["amount_units"])
+        quoted_terms = PaymentTerms(
+            chain=invoice["chain"], token=invoice["token"], token_contract=invoice["token_contract"],
+            decimals=settings.payment_decimals, pay_to=invoice["pay_to"], amount_units=units,
+            amount_usd=units / 10**settings.payment_decimals,
+            min_confirmations=settings.payment_min_confirmations,
+            chain_id=settings.payment_chain_id,
+        )
         try:
             settled = verify_transfer(
                 rpc_url=settings.payment_rpc_url,
                 tx_hash=tx_hash,
-                terms=terms,
-                max_age_s=settings.payment_max_age_s,
+                terms=quoted_terms,
+                paid_after=invoice["issued_at"],
+                paid_before=invoice["expires_at"],
                 require_nonce=nonce,
             )
+        except PaymentPending as exc:
+            return JSONResponse(status_code=409, headers={"Retry-After": "3"}, content={
+                "ok": False, "error": "payment_confirmation_pending",
+                "detail": str(exc), "nonce": nonce, "tx_hash": claim.tx_hash,
+            }), None
         except PaymentError as exc:
-            return _payment_required(row, terms, str(exc)), None
+            return refuse(str(exc))
         except httpx.HTTPError:
             # The chain is unreachable. Serving the call would give the work away;
             # claiming it was paid would be a lie. Refuse, and say which.
             raise HTTPException(
                 status_code=503, detail="payment verifier unavailable"
             ) from None
-        if not store.consume_invoice(nonce, settled["tx_hash"]):
-            # Two calls raced on one nonce; the database picked the winner.
-            return _payment_required(
-                row, terms, "that payment nonce has already been spent"
-            ), None
-        # One claim per payment, the authorization: a bundle of several in one transaction
-        # is several payments, and keying on the hash let whoever redeemed first deny every
-        # other payer in it.
-        claim_key = f"{settled['tx_hash']}:{nonce}"
-        if not store.claim_payment(
-            tx_hash=claim_key, slug=row.slug, chain=terms.chain,
-            token=terms.token, paid_units=settled["paid_units"], pay_to=terms.pay_to,
+        if not store.claim_invoice_payment(
+            nonce=nonce, tx_hash=settled["tx_hash"], slug=row.slug, chain=quoted_terms.chain,
+            token=quoted_terms.token, paid_units=settled["paid_units"], pay_to=quoted_terms.pay_to,
+            request_key=request_key,
         ):
-            store.release_invoice(nonce)
-            return _payment_required(
-                row, terms, "that payment has already been spent on another call"
-            ), None
-        return None, Claim(tx_hash=claim_key, nonce=nonce)
+            return existing()
+        return None, claim
 
     # ------------------------------------------------------------ compute
 
@@ -635,6 +675,8 @@ def register(
             total += len(chunk)
             if total > limit:
                 await response.aclose()
+                if response.status_code == 200:
+                    raise MalformedTenantResponse("tenant response too large")
                 raise HTTPException(status_code=502, detail="tenant response too large")
             chunks.append(chunk)
         return b"".join(chunks)
@@ -656,6 +698,7 @@ def register(
             current is not None
             and current.status == "running"
             and current.listen_url == row.listen_url
+            and current.updated_at == row.updated_at
         )
 
     def _open_owner(row: TenantRow) -> str | None:
@@ -730,76 +773,142 @@ def register(
             result["hub_billing"] = block
         return result
 
+    async def _deliver_paid(
+        row: TenantRow, claim: Claim | None, send: Callable[[WasmInvocation | None], Awaitable[Any]],
+    ) -> Any:
+        if not _still_serving(row):
+            raise HTTPException(status_code=503, detail="tenant changed during the request; retry")
+        snapshot = None
+        if claim and is_wasm(row.listen_url):
+            def snapshot_wasm() -> WasmInvocation:
+                with lifecycle():
+                    if not _still_serving(row):
+                        raise HTTPException(
+                            status_code=503, detail="tenant changed during the request; retry"
+                        )
+                    return stub.invocation_snapshot(row.slug)
+
+            snapshot = await run_in_threadpool(snapshot_wasm)
+        if claim and not await run_in_threadpool(
+            store.start_payment_delivery, claim.nonce, claim.tx_hash, claim.request_key,
+        ):
+            current = await run_in_threadpool(store.payment_delivery, claim.nonce)
+            if current and current["tx_hash"] == claim.tx_hash and current["request_key"] == claim.request_key:
+                return _delivery_response(current)
+            raise HTTPException(status_code=409, detail="payment state changed; retry the same request")
+        if claim and not _still_serving(row):
+            await run_in_threadpool(
+                store.retry_payment_delivery, claim.nonce, claim.tx_hash, claim.request_key,
+            )
+            raise HTTPException(status_code=503, detail="tenant changed during the request; retry")
+        try:
+            answer = await send(snapshot)
+            if claim and not isinstance(answer, Response):
+                answer = JSONResponse(answer)
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+            if claim:
+                await run_in_threadpool(
+                    store.retry_payment_delivery, claim.nonce, claim.tx_hash, claim.request_key,
+                )
+            if is_wasm(row.listen_url):
+                return JSONResponse(
+                    status_code=502,
+                    content={"ok": False, "error": "sandbox runner unreachable"},
+                )
+            raise HTTPException(status_code=502, detail="tenant unreachable") from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            if not claim:
+                detail = "tenant unreachable" if isinstance(exc, httpx.HTTPError) else "invalid tenant response"
+                if isinstance(exc, MalformedTenantResponse) and str(exc):
+                    detail = str(exc)
+                raise HTTPException(status_code=502, detail=detail) from exc
+            await run_in_threadpool(
+                store.finish_payment_delivery, claim.nonce, claim.tx_hash, claim.request_key,
+                status_code=0,
+            )
+            return _delivery_response({"state": "reconciliation_required"})
+        except HTTPException as exc:
+            if not claim:
+                raise
+            answer = JSONResponse(
+                status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers,
+            )
+
+        if not claim:
+            return answer
+        response = answer
+        if is_wasm(row.listen_url) and response.status_code == 503:
+            # The trusted runner returns 503 only when admission rejects the work.
+            await run_in_threadpool(
+                store.retry_payment_delivery, claim.nonce, claim.tx_hash, claim.request_key,
+            )
+        elif 500 <= response.status_code < 600 and response.status_code != 504:
+            await run_in_threadpool(
+                store.finish_payment_delivery, claim.nonce, claim.tx_hash, claim.request_key,
+                status_code=0,
+            )
+            return _delivery_response({"state": "reconciliation_required"})
+        else:
+            finished = await run_in_threadpool(
+                store.finish_payment_delivery,
+                claim.nonce,
+                claim.tx_hash,
+                claim.request_key,
+                status_code=response.status_code,
+                content_type=response.headers.get("content-type", ""),
+                body_b64=b64encode(response.body).decode("ascii"),
+            )
+            if not finished:
+                return _delivery_response({"state": "reconciliation_required"})
+        return response
+
     async def _invoke_tenant(
         row: TenantRow, payload: dict[str, Any], claim: Claim | None = None
-    ) -> dict[str, Any]:
-        if not _still_serving(row):
-            _release_claim(claim)
-            raise HTTPException(status_code=503, detail="tenant changed during the request; retry")
-        if is_wasm(row.listen_url):
-            status, answer = await stub.invoke(row.slug, row.capability, payload,
-                                               open_owner=_open_owner(row))
-            if status != 200:
-                _release_on_platform_failure(claim, status)
-                raise HTTPException(
-                    status_code=status,
-                    detail=json.dumps(answer, separators=(",", ":"), ensure_ascii=False)[:300],
-                )
-            return answer
-        target = f"{row.listen_url.rstrip('/')}/invoke"
-        try:
+    ) -> dict[str, Any] | Response:
+        async def send(snapshot: WasmInvocation | None) -> dict[str, Any]:
+            if is_wasm(row.listen_url):
+                status, answer = await stub.invoke(row.slug, row.capability, payload,
+                                                   open_owner=_open_owner(row), snapshot=snapshot)
+                if status != 200:
+                    raise HTTPException(
+                        status_code=status,
+                        detail=json.dumps(answer, separators=(",", ":"), ensure_ascii=False)[:300],
+                    )
+                return answer
+            target = f"{row.listen_url.rstrip('/')}/invoke"
             async with httpx.AsyncClient(timeout=20.0) as client:
                 async with client.stream("POST", target, json=payload) as streamed:
                     body = await _read_capped(streamed)
                     status = streamed.status_code
-        except httpx.HTTPError as exc:
-            _release_claim(claim)
-            raise HTTPException(status_code=502, detail="tenant unreachable") from exc
-        except HTTPException:
-            # _read_capped refused an oversized tenant response: the provider
-            # over-produced and the buyer got nothing back. That is a platform
-            # failure, so the claim is released rather than spent on a call that
-            # was never delivered.
-            _release_claim(claim)
-            raise
-        if status != 200:
-            _release_on_platform_failure(claim, status)
-            raise HTTPException(status_code=status, detail=body.decode(errors="replace")[:300])
-        import json as _json
+            if status != 200:
+                raise HTTPException(status_code=status, detail=body.decode(errors="replace")[:300])
+            result = decode_tenant_json(body)
+            if not isinstance(result, dict):
+                raise MalformedTenantResponse
+            return result
 
-        return _json.loads(body)
+        return await _deliver_paid(row, claim, send)
 
     async def _wasm_edge(
-        row: TenantRow, path: str, request: Request, claim: Claim | None
+        row: TenantRow, path: str, method: str, body: dict[str, Any], claim: Claim | None
     ) -> Response:
         """The tenant's own door for a sandboxed tenant: /health and /invoke, nothing else."""
-        if path == "health" and request.method == "GET":
+        if path == "health" and method == "GET":
             return JSONResponse(stub.health(row.slug))
-        if path != "invoke" or request.method != "POST":
-            _release_claim(claim)
+        if path != "invoke" or method != "POST":
             raise HTTPException(status_code=404, detail="not found")
-        raw = await request.body()
-        try:
-            body = json.loads(raw.decode() or "{}")
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            return JSONResponse(status_code=400, content={"ok": False, "error": "invalid json"})
-        if not isinstance(body, dict):
-            return JSONResponse(status_code=400,
-                                content={"ok": False, "error": "body must be an object"})
-        if not _still_serving(row):
-            _release_claim(claim)
-            raise HTTPException(status_code=503, detail="tenant changed during the request; retry")
-        status, answer = await stub.invoke(row.slug, row.capability, body,
-                                           open_owner=_open_owner(row))
-        _release_on_platform_failure(claim, status)
-        return JSONResponse(status_code=status, content=answer)
+
+        async def send(snapshot: WasmInvocation | None) -> Response:
+            status, answer = await stub.invoke(row.slug, row.capability, body,
+                                               open_owner=_open_owner(row), snapshot=snapshot)
+            return JSONResponse(status_code=status, content=answer)
+
+        return await _deliver_paid(row, claim, send)
 
     return SimpleNamespace(
         _read_capped=_read_capped,
-        _release_claim=_release_claim,
-        _release_on_platform_failure=_release_on_platform_failure,
+        _deliver_paid=_deliver_paid,
         _settle=_settle,
-        _still_serving=_still_serving,
         _terms_for=_terms_for,
         _wasm_edge=_wasm_edge,
     )
