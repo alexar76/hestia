@@ -7,7 +7,9 @@ listens only on a Unix socket in a volume it shares with the hearth (HESTIA_RUNN
 The hearth sends a handler's source and one payload; the runner answers with the result
 or why there is none. It holds no key and signs nothing: the hearth signs outside.
 
-    POST /run     {"source": str, "payload": any, "timeout_s"?: number, "fetched"?: {key: response}}
+    POST /run     {"source": str, "payload": any, "timeout_s"?: number, "fetched"?: {key: response},
+                   "language"?: "python" | "javascript", "seed"?: str}
+                  seed: the call's CALL_NONCE, the same in every fetch round of one call
                   -> 200 {"kind": "ok", "result": {...}, "wall_ms": n}
                   -> 200 {"kind": "fetch", "fetch": {method, url, headers, body}}  (hestia.egress)
                   -> 200 {"kind": "error" | "timeout" | "memory" | "output" | "crash", ...}
@@ -63,7 +65,8 @@ def make_handler(sandbox: Sandbox, slots: threading.BoundedSemaphore, queue_s: f
             if self.path == "/health":
                 self._send(200, {"ok": True, "service": "hestia-runner",
                                  "python": "wasi", "memory_mb": sandbox.memory_mb,
-                                 "timeout_s": sandbox.timeout_s})
+                                 "timeout_s": sandbox.timeout_s,
+                                 "languages": list(getattr(sandbox, "languages", ["python"]))})
                 return
             self._send(404, {"ok": False, "error": "not found"})
 
@@ -81,6 +84,8 @@ def make_handler(sandbox: Sandbox, slots: threading.BoundedSemaphore, queue_s: f
                 payload = request["payload"]
                 timeout_s = float(request.get("timeout_s") or sandbox.timeout_s)
                 fetched = request.get("fetched") or {}
+                language = request.get("language") or "python"
+                seed = request.get("seed") or ""
             except (ValueError, KeyError, TypeError):
                 self._send(400, {"ok": False, "error": "bad request"})
                 return
@@ -90,11 +95,20 @@ def make_handler(sandbox: Sandbox, slots: threading.BoundedSemaphore, queue_s: f
             if not isinstance(fetched, dict):
                 self._send(400, {"ok": False, "error": "fetched must be an object"})
                 return
+            if not isinstance(seed, str) or len(seed) > 128:
+                self._send(400, {"ok": False, "error": "seed must be a short string"})
+                return
+            if language not in ("python", "javascript"):
+                self._send(400, {"ok": False, "error": "language must be python or javascript"})
+                return
             if not slots.acquire(timeout=queue_s):
                 self._send(503, {"ok": False, "error": "runner busy"})
                 return
             try:
-                outcome = sandbox.run(source, payload, timeout_s=timeout_s, fetched=fetched)
+                extra = {"language": language} if language != "python" else {}
+                if seed:
+                    extra["seed"] = seed
+                outcome = sandbox.run(source, payload, timeout_s=timeout_s, fetched=fetched, **extra)
             finally:
                 slots.release()
             self._send(200, outcome.to_json())
@@ -133,7 +147,15 @@ def probe(socket_path: str, timeout: float = 3.0) -> bool:
             sock.settimeout(timeout)
             sock.connect(socket_path)
             sock.sendall(b"GET /health HTTP/1.1\r\nHost: runner\r\nConnection: close\r\n\r\n")
-            return sock.recv(64).startswith(b"HTTP/1.1 200")
+            # Read the whole (small) answer before closing: closing after the status line made
+            # the runner's write of the body fail with a BrokenPipeError traceback in its log.
+            answer = b""
+            while len(answer) < 8192:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                answer += chunk
+            return answer.startswith(b"HTTP/1.1 200")
     except OSError:
         return False
 

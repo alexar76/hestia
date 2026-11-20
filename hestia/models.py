@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from hestia.slugs import validate_slug
 
@@ -49,9 +49,25 @@ class CapabilitySpec(StrictModel):
         return value
 
 
+# A handler for the WebAssembly sandbox may be one bundled file, in either language; the whole
+# deploy request must still fit HESTIA_MAX_BODY_BYTES (256 KiB by default, the same in the
+# hearth's nginx), JSON escaping included, hence 200 000 characters and not more. The stub
+# runtime keeps the old 32 000 for Python (hestia.scan.admit_handler reads every node).
+MAX_PYTHON_HANDLER = 32_000
+MAX_JS_HANDLER = 200_000
+MAX_SANDBOX_HANDLER = MAX_JS_HANDLER
+
+
 class TemplateSource(StrictModel):
     kind: Literal["template"] = "template"
-    handler: str = Field(default="", max_length=32_000)
+    language: Literal["python", "javascript"] = "python"
+    handler: str = Field(default="", max_length=MAX_JS_HANDLER)
+
+    @model_validator(mode="after")
+    def _size_for_language(self) -> "TemplateSource":
+        if len(self.handler) > MAX_SANDBOX_HANDLER:
+            raise ValueError(f"a {self.language} handler is at most {MAX_SANDBOX_HANDLER} characters")
+        return self
 
 
 class PinnedImageSource(StrictModel):
@@ -83,6 +99,10 @@ class DeployRequest(StrictModel):
     # hestia.egress: exact public DNS names this agent's handler may fetch from, through the
     # hearth. Public on the roster. Empty: no network, as before.
     egress_hosts: list[str] = Field(default_factory=list, max_length=8)
+    # hestia.egress, caller-named hosts: top-level input fields whose value (a host name, or an
+    # https:// URL) adds that one host for that one call. The caller, not the agent, chooses where
+    # the call reaches: "check this domain". Public on the roster. At most three fields.
+    egress_input_fields: list[str] = Field(default_factory=list, max_length=3)
 
     @field_validator("egress_hosts")
     @classmethod
@@ -90,6 +110,17 @@ class DeployRequest(StrictModel):
         from hestia.egress import normalize_hosts
 
         return normalize_hosts(value)
+
+    @field_validator("egress_input_fields")
+    @classmethod
+    def _egress_fields(cls, value: list[str]) -> list[str]:
+        out: list[str] = []
+        for name in value:
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", name or ""):
+                raise ValueError(f"egress input field {name!r} must be an identifier")
+            if name not in out:
+                out.append(name)
+        return out
 
     @field_validator("payout_address")
     @classmethod

@@ -135,6 +135,33 @@ costs disk, not memory: hundreds fit where the stub held about thirty.
 Proven on the reference hearth with a stranger's agent written to escape: every path it tried was
 `FileNotFoundError`, the network and processes were unavailable, its environment held two variables.
 
+### JavaScript agents
+
+Since 2026-11-20 a handler may also be **JavaScript**: `"language": "javascript"` in the deploy's
+`source`. It runs in the same runner under the same limits, in **QuickJS-ng 0.17.0 compiled to WASI**
+(pinned by SHA-256 in `scripts/fetch_qjs_wasi.py`), which gets no preopened directory and no environment at
+all. The handler is one classic script (not an ES module) that defines `handle(payload)`, plain or `async`;
+a project that uses packages bundles them into one file first, for example
+`esbuild index.ts --bundle --format=iife --global-name=handler --platform=neutral`, which leaves
+`handler.handle`. Up to 200 000 characters (the deploy request must fit 256 KiB). `fetch(url, {method,
+headers, body, json})` works as in Python: only the deploy's `egress_hosts`, through the hearth, and it
+returns a Promise of a Response with `ok`, `status`, `headers.get()`, `text()` and `json()`.
+
+What is **not** there: Node's modules (`fs`, `crypto`, `Buffer`, `process`), timers and real I/O. The engine's
+own `qjs:std` and `qjs:os` can be imported, and under WASI they reach nothing but the handler's own output; the
+answer the hearth signs is written last by the runner's guest, after the handler is done. A promise that
+can never settle is answered as an error at once, deep recursion is a `RangeError` (256 KiB engine stack),
+memory, time and output are capped as for Python. The roster shows `"language": "javascript"` for such an
+agent. The first one is `warden.scan@v1` (hestia-agents), WARDEN's static scan of MCP tool definitions.
+
+```json
+{"slug": "my-agent",
+ "capability": {"...": "..."},
+ "source": {"kind": "template", "language": "javascript",
+            "handler": "function handle(payload) { return {words: payload.text.split(/\\s+/).length}; }"},
+ "owner_pubkey": "...", "payout_address": "0x..."}
+```
+
 ## Network for agents (`HESTIA_TENANT_EGRESS`)
 
 The sandbox has no sockets, and that stays. An agent that sells data it reads elsewhere — a
@@ -169,7 +196,8 @@ What the hearth enforces (`hestia/egress.py`), whatever the handler asks:
 | scheme, port, methods | `https`, 443, `GET` and `POST` |
 | address | resolved by the hearth; **every** answer must be a public address (one private answer refuses the name — the DNS-rebinding shape); the request goes to that checked address with the TLS name and `Host` set to the host, so the certificate is verified for it |
 | redirects, proxies, cookies | not followed / not used / not kept; a `3xx` comes back to the handler as a response |
-| request headers | only `accept`, `accept-language`, `authorization`, `content-type`, `x-api-key`; no CR/LF |
+| request headers | only `accept`, `accept-language`, `authorization`, `content-type`, `x-api-key`, and for RFC 9421 response signatures `accept-signature`, `aid-domain`, `cache-control`; no CR/LF |
+| response headers a handler sees | `content-type`, `content-length`, `date`, `etag`, `last-modified`, `location`, `retry-after`, `cache-control`, rate-limit headers, `payment-required`, `signature`, `signature-input`, `link` |
 | sizes, time | request body ≤ 64 KiB, response ≤ 256 KiB, 5 s per request |
 | budget | `HESTIA_TENANT_EGRESS_PER_MINUTE` (60) per agent, `HESTIA_TENANT_EGRESS_HEARTH_PER_MINUTE` (600) for all agents together |
 | log | tenant, method, host, status, bytes, ms — never a body |
@@ -180,6 +208,39 @@ the handler's error, not a hearth fault. Egress is off by default and needs
 The reference hearth hosts such agents **free of charge**, self-admitted owners included: the
 only cost to a seller is its own upstream (an RPC key, an API plan), and a seller with no buyers
 yet keeps its listing instead of paying for a server.
+
+### Hosts the caller names (`egress_input_fields`)
+
+Some checks are about a host only the caller knows: "does *this* domain publish a valid AID
+record, and does its endpoint prove the key?". Since 2026-11-20 a deploy may name up to three
+top-level **input fields** whose value in a call — a host name or an `https://` URL — adds that one
+host for that one call:
+
+```json
+{"slug": "aid-discover", "egress_hosts": ["cloudflare-dns.com", "dns.google"],
+ "egress_input_fields": ["domain", "endpoint"], "capability": {…}, "source": {…}}
+```
+
+A call with `{"domain": "example.com"}` may then fetch `https://example.com/…` as well as the two
+fixed resolvers; the next call, with another domain, may not. Every rule in the table above still
+applies to such a host (public addresses only, https on 443, no redirects, sizes, time). On top:
+
+- each caller-named host has its own budget across the whole hearth,
+  `DEFAULT_TARGET_PER_MINUTE` (20 requests a minute from every agent and caller together), so the
+  hearth cannot be pointed at one site;
+- only the operator and owners the operator admitted may declare input fields. An open-signup
+  key may name fixed `egress_hosts` only: a free key with caller-named hosts would be a proxy to
+  any public site from the hearth's address;
+- the roster shows `egress_input_fields` next to `egress_hosts`, so a buyer sees what the agent
+  may reach before calling it.
+
+Every round of one call also gets the same **`CALL_NONCE`**, 32 random bytes in hex, visible to the
+handler as a global in both languages. A handler that needs a fresh challenge — an AID proof
+request — uses it, and asks for the same one in every round, so the response the hearth already
+fetched answers it. `aid.discover@v1` (hestia-agents) is built on both.
+
+In the sandbox a Python handler may now be as large as a JavaScript one, 200 000 characters (one
+generated file); the stub runtime keeps 32 000.
 
 ## Owners
 
@@ -267,6 +328,22 @@ subcontracting allowance. So an owner can let a hub sell its agents on its behal
 The operator's own tenants (placeholder owner key) are sold by any hub whose key the operator configured,
 and the hub keeps what it charges. A hub that did not charge (`X-AIMarket-Hub-Charged: 0`, a free trial)
 is not served an owner's agent. Operator view: `GET /v1/admin/hub-billing`.
+
+
+### A price with no payout address
+
+A call is billed only when the hearth's payments are on, the agent's price is above zero **and** the
+deploy names a `payout_address`. With no address the hearth serves every call free rather than bill
+nobody: safe for a buyer, a silent loss for a seller who meant to sell. Since 2026-11-20 the hearth says
+so where the seller looks:
+
+- the deploy answer carries `warnings` (and `hestia-owner` / `hestia_agents.cli deploy` print them);
+- `/v1/hearth`, `/v1/tenants` and `/v1/owners/me` (`unpaid`) carry `unpaid_reason` for such an agent.
+
+When a hub the owner chose bills for the agent (above), only calls straight to the hearth are free, and
+the warning says that instead. Nothing is said when payments are off on the whole hearth: that is the
+operator's choice, not something a redeploy fixes. To be paid, redeploy with your wallet:
+`hestia-owner deploy --key owner.key --body my-agent/deploy.json --payout 0x…`.
 
 ## Quick start
 

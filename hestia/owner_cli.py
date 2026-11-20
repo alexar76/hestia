@@ -64,9 +64,18 @@ def _send(hearth: str, key: Ed25519PrivateKey, method: str, path: str, body: byt
     res = httpx.request(method, hearth.rstrip("/") + path, content=body or None,
                         headers=headers, timeout=60)
     try:
-        print(json.dumps(res.json(), indent=2, ensure_ascii=False))
+        answer = res.json()
+        print(json.dumps(answer, indent=2, ensure_ascii=False))
     except ValueError:
         print(res.text)
+        answer = None
+    # What the hearth accepted but the owner should still act on (hestia/payout.py: a priced
+    # agent with no payout address serves its calls free), said once more where it is seen.
+    if isinstance(answer, dict):
+        notes = list(answer.get("warnings") or []) + [
+            f"{slug}: {why}" for slug, why in (answer.get("unpaid") or {}).items()]
+        for note in notes:
+            print(f"WARNING: {note}", file=sys.stderr)
     return 0 if res.status_code < 400 else 1
 
 
@@ -117,13 +126,18 @@ def _deploy_template(slug: str) -> dict:
 
 
 def _with_handler(payload: dict, body_path: Path) -> dict:
-    """An empty template handler is filled from handler.py beside deploy.json."""
+    """An empty template handler is filled from the file beside deploy.json: handler.py, or
+    handler.js when the source says "language": "javascript" (or only handler.js is there)."""
     source = payload.get("source") or {}
     if source.get("kind", "template") == "template" and not source.get("handler"):
-        handler = body_path.parent / "handler.py"
-        if handler.is_file():
-            source["handler"] = handler.read_text(encoding="utf-8")
-            payload["source"] = source
+        python, js = body_path.parent / "handler.py", body_path.parent / "handler.js"
+        if source.get("language") == "javascript" or (js.is_file() and not python.is_file()):
+            if js.is_file():
+                source["handler"] = js.read_text(encoding="utf-8")
+                source["language"] = "javascript"
+        elif python.is_file():
+            source["handler"] = python.read_text(encoding="utf-8")
+        payload["source"] = source
     return payload
 
 

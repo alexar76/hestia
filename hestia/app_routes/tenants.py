@@ -17,7 +17,7 @@ from hestia.hub import AnnounceError
 from hestia.hub import announce as hub_announce
 from hestia.listing import HELD, LISTED
 from hestia.listing import review as review_listing
-from hestia.models import DeployRequest, TemplateSource
+from hestia.models import MAX_PYTHON_HANDLER, DeployRequest, TemplateSource
 from hestia.names import (
     DOMAIN,
     FAMILY,
@@ -33,10 +33,11 @@ from hestia.names import (
     reverse as reverse_domain,
 )
 from hestia.owners import OwnerProofError, canonical_owner_key, code_right
+from hestia.payout import agent_unpaid_reason
 from hestia.runtime.docker import DockerRuntime
 from hestia.runtime.stub import StubRuntime
 from hestia.runtime.wasm import WasmRuntime
-from hestia.scan import HandlerDenied, admit_handler, lint_wasm_handler
+from hestia.scan import HandlerDenied, admit_handler, lint_js_handler, lint_wasm_handler
 from hestia.store import LIVE, QUARANTINED, TenantRow, TenantStore
 from hestia.themis import AdmissionDenied
 from hestia.themis import admit as themis_admit
@@ -202,9 +203,19 @@ def register(
                     detail="HESTIA_REQUIRE_SANDBOX refuses template-handler stub tenants",
                 )
             handler = body.source.handler
+            if body.source.language == "javascript" and settings.runtime != "wasm":
+                raise HTTPException(status_code=400,
+                                    detail="JavaScript handlers need HESTIA_RUNTIME=wasm")
+            if (body.source.language == "python" and settings.runtime != "wasm"
+                    and len(handler) > MAX_PYTHON_HANDLER):
+                raise HTTPException(status_code=400, detail=(
+                    f"a Python handler outside the wasm sandbox is at most {MAX_PYTHON_HANDLER} "
+                    "characters"))
             if handler.strip():
                 try:
-                    if settings.runtime == "wasm":
+                    if body.source.language == "javascript":
+                        lint_js_handler(handler)
+                    elif settings.runtime == "wasm":
                         lint_wasm_handler(handler)
                     else:
                         admit_handler(handler)
@@ -290,11 +301,22 @@ def register(
         runtime = docker if digest else stub
         if runtime is None:  # an image digest passed the checks above only under docker
             raise HTTPException(status_code=400, detail="pinned images require HESTIA_RUNTIME=docker")
-        if body.egress_hosts and (digest or not settings.tenant_egress):
+        if (body.egress_hosts or body.egress_input_fields) and (digest or not settings.tenant_egress):
             raise HTTPException(
                 status_code=400,
-                detail="egress_hosts need a template agent on a hearth with HESTIA_TENANT_EGRESS=1",
+                detail="egress_hosts and egress_input_fields need a template agent on a hearth "
+                       "with HESTIA_TENANT_EGRESS=1",
             )
+        if body.egress_input_fields and principal.kind != "operator":
+            # A key admits itself for free: caller-named hosts would make it a proxy to any public
+            # site from the hearth's address. The operator's admission is the line.
+            owner_row = store.get_owner(principal.owner) or {}
+            if owner_row.get("admitted_by") != "operator":
+                raise HTTPException(
+                    status_code=403,
+                    detail="egress_input_fields (hosts the caller names) need an owner the "
+                           "operator admitted; an open-signup key may name fixed egress_hosts only",
+                )
         try:
             running = runtime.start(
                 slug=body.slug,
@@ -303,7 +325,10 @@ def register(
                 image_digest=digest,
                 profile=profile,
                 env={"HESTIA_TENANT_MAX_BODY_BYTES": str(settings.max_body_bytes),
-                     "HESTIA_EGRESS_HOSTS": ",".join(body.egress_hosts)},
+                     "HESTIA_EGRESS_HOSTS": ",".join(body.egress_hosts),
+                     "HESTIA_EGRESS_INPUT_FIELDS": ",".join(body.egress_input_fields),
+                     **({"HESTIA_HANDLER_LANGUAGE": body.source.language}
+                        if settings.runtime == "wasm" else {})},
             )
         except Exception as exc:
             # The old tenant is already stopped. Leaving the row "running" would
@@ -333,9 +358,17 @@ def register(
             listing_by=listing_by,
         )
         store.upsert(tenant)
+        warnings = []
+        unpaid = agent_unpaid_reason(store, settings, capability=tenant.capability,
+                                     payout_address=tenant.payout_address,
+                                     owner_pubkey=tenant.owner_pubkey)
+        if unpaid:
+            warnings.append(unpaid)
         return {
             "ok": True,
             "slug": body.slug,
+            # Deployed as asked; what the owner should still know. Empty for most deploys.
+            "warnings": warnings,
             "status": tenant.status,
             "public_url": public_url,
             "invoke_url": f"{public_url}/invoke",
@@ -358,6 +391,11 @@ def register(
                 continue
             item = asdict(tenant)
             item.pop("listen_url", None)
+            unpaid = agent_unpaid_reason(store, settings, capability=tenant.capability,
+                                         payout_address=tenant.payout_address,
+                                         owner_pubkey=tenant.owner_pubkey)
+            if unpaid:
+                item["unpaid_reason"] = unpaid
             rows.append(item)
         return {"ok": True, "tenants": rows}
 

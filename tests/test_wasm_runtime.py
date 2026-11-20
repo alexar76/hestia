@@ -54,8 +54,10 @@ class ScriptedSandbox:
         self.held = threading.Event()
         self.release = threading.Event()
 
-    def run(self, source, payload, *, timeout_s=None, fetched=None):
+    def run(self, source, payload, *, timeout_s=None, fetched=None, language="python", seed=""):
         self.calls.append((source, payload))
+        self.language = language
+        self.seed = seed
         self.fetched = dict(fetched or {})
         mode = payload.get("mode", "ok") if isinstance(payload, dict) else "ok"
         if mode == "fetch":
@@ -211,7 +213,7 @@ def test_paid_wasm_continuation_after_egress_is_ambiguous(tmp_path, monkeypatch,
     sent = []
     runs = []
 
-    async def run(_source, _body, fetched):
+    async def run(_source, _body, fetched, _language="python", _seed=""):
         runs.append(fetched)
         if not fetched:
             return 200, {"kind": "fetch", "fetch": {
@@ -221,7 +223,7 @@ def test_paid_wasm_continuation_after_egress_is_ambiguous(tmp_path, monkeypatch,
             return 503, {"error": "runner busy"}
         raise httpx.ConnectError("runner unavailable in subsequent round")
 
-    async def fetch(_slug, request):
+    async def fetch(_slug, request, **_kw):
         sent.append(request)
         return {"text": "fixture response"}
 
@@ -488,3 +490,286 @@ def test_owners_the_operator_admitted_run_outside_the_open_lane(tmp_path, script
     assert vouched["admitted_by"] == "operator"
     assert c.post("/v1/owners", json={"pubkey": stranger.pub, "admitted_by": "root"},
                   headers=auth(c)).status_code == 400
+
+
+# ------------------------------------------------------------------ JavaScript agents (2026-11-20)
+
+JS_HANDLER = "function handle(payload) { return { n: Object.keys(payload).length }; }\n"
+
+
+def js_payload(slug: str = "demo-echo", handler: str = JS_HANDLER) -> dict:
+    body = deploy_payload(slug=slug, handler=handler)
+    body["source"]["language"] = "javascript"
+    return body
+
+
+def test_a_javascript_agent_is_stored_as_handler_js_and_runs_as_javascript(tmp_path, scripted_runner) -> None:
+    socket_path, sandbox = scripted_runner
+    c = wasm_client(tmp_path, socket_path)
+    out = c.post("/v1/tenants", json=js_payload(), headers=auth(c))
+    assert out.status_code == 200, out.text
+    tenant_dir = tmp_path / "tenants" / "demo-echo"
+    assert (tenant_dir / "handler.js").read_text() == JS_HANDLER and not (tenant_dir / "handler.py").exists()
+    answer = c.post("/t/demo-echo/invoke", json={"a": 1})
+    assert answer.status_code == 200, answer.text
+    assert sandbox.calls[-1] == (JS_HANDLER, {"a": 1}) and sandbox.language == "javascript"
+    verify_signature(answer.json(), {"a": 1}, capability())
+    roster = {t["slug"]: t for t in c.get("/v1/hearth").json()["tenants"]}
+    assert roster["demo-echo"]["language"] == "javascript"
+    # Python agents keep their old shape: no language field, the runner is not told one.
+    py = deploy_payload(slug="py-agent", handler=HANDLER)
+    py["capability"]["capability_id"] = "demo.python@v1"
+    assert c.post("/v1/tenants", json=py, headers=auth(c)).status_code == 200
+    assert c.post("/t/py-agent/invoke", json={}).status_code == 200
+    assert sandbox.language == "python"
+    assert "language" not in {t["slug"]: t for t in c.get("/v1/hearth").json()["tenants"]}["py-agent"]
+
+
+def test_redeploying_in_the_other_language_replaces_the_handler(tmp_path, scripted_runner) -> None:
+    socket_path, sandbox = scripted_runner
+    c = wasm_client(tmp_path, socket_path)
+    tenant_dir = tmp_path / "tenants" / "demo-echo"
+    assert c.post("/v1/tenants", json=js_payload(), headers=auth(c)).status_code == 200
+    assert c.post("/v1/tenants", json=deploy_payload(handler=HANDLER), headers=auth(c)).status_code == 200
+    assert (tenant_dir / "handler.py").exists() and not (tenant_dir / "handler.js").exists()
+    c.post("/t/demo-echo/invoke", json={})
+    assert sandbox.calls[-1][0] == HANDLER and sandbox.language == "python"
+    assert c.post("/v1/tenants", json=js_payload(), headers=auth(c)).status_code == 200
+    assert (tenant_dir / "handler.js").exists() and not (tenant_dir / "handler.py").exists()
+
+
+def test_a_restart_brings_a_javascript_agent_back_as_javascript(tmp_path, scripted_runner) -> None:
+    socket_path, sandbox = scripted_runner
+    c = wasm_client(tmp_path, socket_path)
+    assert c.post("/v1/tenants", json=js_payload(), headers=auth(c)).status_code == 200
+    again = wasm_client(tmp_path, socket_path)       # a new process on the same data volume
+    assert (tmp_path / "tenants" / "demo-echo" / "handler.js").read_text() == JS_HANDLER
+    assert again.post("/t/demo-echo/invoke", json={}).status_code == 200
+    assert sandbox.calls[-1][0] == JS_HANDLER and sandbox.language == "javascript"
+
+
+def test_javascript_is_refused_outside_the_sandbox_and_when_malformed(tmp_path, scripted_runner) -> None:
+    from tests.conftest import client
+    stub = client(tmp_path / "stub")
+    out = stub.post("/v1/tenants", json=js_payload(), headers=auth(stub))
+    assert out.status_code == 400 and "HESTIA_RUNTIME=wasm" in out.json()["detail"]
+    socket_path, _ = scripted_runner
+    c = wasm_client(tmp_path / "wasm", socket_path)
+    for source, why in (("export function handle(p) { return {}; }", "classic script"),
+                        ("import x from 'y'; function handle(){}", "classic script"),
+                        ("function other() {}", "must define handle")):
+        out = c.post("/v1/tenants", json=js_payload(handler=source), headers=auth(c))
+        assert out.status_code == 400 and why in out.json()["detail"], (source, out.text)
+    big = "function handle(p) { return {}; }\n// " + "x" * 200_000
+    out = c.post("/v1/tenants", json=js_payload(handler=big), headers=auth(c))
+    assert out.status_code in (400, 422) and "200000" in out.text, out.text
+    # Python in the sandbox may be as large as JavaScript; outside it the AST admission keeps 32 000.
+    py_big = deploy_payload(slug="py-big", handler="def handle(p):\n    return {}\n#" + "x" * 40_000)
+    py_big["capability"]["capability_id"] = "demo.big@v1"
+    assert c.post("/v1/tenants", json=py_big, headers=auth(c)).status_code == 200
+    out = stub.post("/v1/tenants", json=py_big, headers=auth(stub))
+    assert out.status_code == 400 and "32000" in out.text, out.text
+    ok_size = "function handle(p) { return {}; }\n// " + "x" * 150_000
+    assert c.post("/v1/tenants", json=js_payload(handler=ok_size), headers=auth(c)).status_code == 200
+
+
+def test_a_javascript_agent_left_behind_by_a_switch_to_the_stub_is_stopped_not_echoed(tmp_path, scripted_runner) -> None:
+    from tests.conftest import client
+    socket_path, _ = scripted_runner
+    c = wasm_client(tmp_path, socket_path)
+    assert c.post("/v1/tenants", json=js_payload(), headers=auth(c)).status_code == 200
+    stub = client(tmp_path)                           # the same data volume, HESTIA_RUNTIME=stub
+    row = stub.app.state.store.get("demo-echo")
+    assert row.status == "stopped" and "JavaScript" in row.last_error
+
+
+def test_the_owner_tool_fills_a_javascript_handler_from_handler_js(tmp_path) -> None:
+    from hestia.owner_cli import _with_handler
+    (tmp_path / "handler.js").write_text(JS_HANDLER, encoding="utf-8")
+    body = {"source": {"kind": "template", "handler": ""}}
+    assert _with_handler(body, tmp_path / "deploy.json")["source"] == {
+        "kind": "template", "handler": JS_HANDLER, "language": "javascript"}
+    (tmp_path / "handler.py").write_text(HANDLER, encoding="utf-8")
+    assert _with_handler({"source": {"kind": "template", "handler": ""}},
+                         tmp_path / "deploy.json")["source"]["handler"] == HANDLER
+    both = {"source": {"kind": "template", "handler": "", "language": "javascript"}}
+    assert _with_handler(both, tmp_path / "deploy.json")["source"]["handler"] == JS_HANDLER
+
+
+def test_the_runner_probe_reads_the_whole_answer(scripted_runner) -> None:
+    from hestia.wasm_runner import probe
+    socket_path, _ = scripted_runner
+    assert probe(socket_path) is True
+    assert probe(os.path.join(short_socket_dir(), "absent.sock")) is False
+
+
+# ------------------------------------------------------------------ caller-named hosts (2026-11-20)
+
+def egress_payload(slug: str = "demo-echo", fields=("domain",), hosts=()) -> dict:
+    body = deploy_payload(slug=slug, handler=HANDLER)
+    body["egress_input_fields"] = list(fields)
+    if hosts:
+        body["egress_hosts"] = list(hosts)
+    return body
+
+
+def test_a_call_may_reach_the_host_its_input_names_and_nothing_else(tmp_path, monkeypatch, scripted_runner) -> None:
+    socket_path, sandbox = scripted_runner
+    c = wasm_client(tmp_path, socket_path, tenant_egress=True)
+    assert c.post("/v1/tenants", json=egress_payload(hosts=("dns.google",)), headers=auth(c)).status_code == 200
+    runtime = c.app.state.stub
+    sent = []
+
+    async def fetch(slug, request, *, caller_named=False):
+        sent.append((request.host, caller_named))
+        return {"status": 200, "headers": {}, "text": "fixture"}
+
+    monkeypatch.setattr(runtime, "egress", SimpleNamespace(fetch=fetch))
+    ok = c.post("/t/demo-echo/invoke", json={"mode": "fetch", "domain": "Example.ORG.",
+                                             "url": "https://example.org/.well-known/x"})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["result"] == {"status": 200, "text": "fixture"}
+    assert sent == [("example.org", True)]
+    # The declared host is reachable too, and is not counted as caller-named.
+    c.post("/t/demo-echo/invoke", json={"mode": "fetch", "domain": "example.org", "url": "https://dns.google/q"})
+    assert sent[-1] == ("dns.google", False)
+    # A host the input does not name is refused; so is a domain field that is not a public host.
+    for body in ({"mode": "fetch", "domain": "example.org", "url": "https://other.example.net/"},
+                 {"mode": "fetch", "domain": "10.0.0.1", "url": "https://10.0.0.1/"},
+                 {"mode": "fetch", "domain": "localhost", "url": "https://localhost/"},
+                 {"mode": "fetch", "domain": "https://example.org:8443/", "url": "https://example.org:8443/"},
+                 {"mode": "fetch", "url": "https://example.org/"}):
+        out = c.post("/t/demo-echo/invoke", json=body)
+        assert out.status_code == 400 and "egress refused" in out.json()["error"], (body, out.text)
+    assert len(sent) == 2
+    roster = {t["slug"]: t for t in c.get("/v1/hearth").json()["tenants"]}["demo-echo"]
+    assert roster["egress_input_fields"] == ["domain"] and roster["egress_hosts"] == ["dns.google"]
+
+
+def test_every_round_of_one_call_gets_the_same_nonce(tmp_path, monkeypatch, scripted_runner) -> None:
+    socket_path, sandbox = scripted_runner
+    c = wasm_client(tmp_path, socket_path, tenant_egress=True)
+    c.post("/v1/tenants", json=egress_payload(), headers=auth(c))
+    seeds = []
+    original = sandbox.run
+
+    def run(source, payload, **kw):
+        seeds.append(kw.get("seed"))
+        return original(source, payload, **kw)
+
+    monkeypatch.setattr(sandbox, "run", run)
+
+    async def fetch(slug, request, *, caller_named=False):
+        return {"status": 200, "headers": {}, "text": "x"}
+
+    monkeypatch.setattr(c.app.state.stub, "egress", SimpleNamespace(fetch=fetch))
+    c.post("/t/demo-echo/invoke", json={"mode": "fetch", "domain": "example.org", "url": "https://example.org/"})
+    c.post("/t/demo-echo/invoke", json={"mode": "fetch", "domain": "example.org", "url": "https://example.org/"})
+    assert len(seeds) == 4 and seeds[0] == seeds[1] and seeds[2] == seeds[3] and seeds[0] != seeds[2]
+    assert all(len(s) == 64 and int(s, 16) >= 0 for s in seeds)
+
+
+def test_caller_named_hosts_need_egress_and_an_owner_the_operator_admitted(tmp_path, scripted_runner) -> None:
+    socket_path, _ = scripted_runner
+    off = wasm_client(tmp_path / "off", socket_path)
+    out = off.post("/v1/tenants", json=egress_payload(), headers=auth(off))
+    assert out.status_code == 400 and "HESTIA_TENANT_EGRESS" in out.json()["detail"]
+    c = open_client(tmp_path / "open", socket_path, tenant_egress=True)
+    stranger = Stranger()
+    payload = egress_payload()
+    payload["owner_pubkey"] = stranger.pub
+    mark = hashlib.sha256(stranger.pub.encode()).hexdigest()[:10]
+    payload["capability"].update(capability_id="stranger.fetch@v1", product_id=f"product-{mark}",
+                                 publisher_id=f"publisher-{mark}")
+    raw = json.dumps(payload).encode()
+    headers = sign_owner_request(stranger.key, hearth="http://127.0.0.1:9480", method="POST",
+                                 path="/v1/tenants", body=raw)
+    out = c.post("/v1/tenants", content=raw, headers={**headers, "content-type": "application/json"})
+    assert out.status_code == 403 and "operator admitted" in out.json()["detail"]
+    for bad in (["a-b"], ["1x"], ["a", "b", "c", "d"]):
+        out = c.post("/v1/tenants", json=egress_payload(fields=bad), headers=auth(c))
+        assert out.status_code in (400, 422) and "egress_input_fields" in out.text, (bad, out.text)
+
+
+def test_a_restart_keeps_the_input_fields(tmp_path, scripted_runner) -> None:
+    socket_path, _ = scripted_runner
+    c = wasm_client(tmp_path, socket_path, tenant_egress=True)
+    c.post("/v1/tenants", json=egress_payload(fields=("domain", "endpoint")), headers=auth(c))
+    again = wasm_client(tmp_path, socket_path, tenant_egress=True)
+    assert again.app.state.stub.egress_input_fields("demo-echo") == ["domain", "endpoint"]
+    # A redeploy without them removes them.
+    again.post("/v1/tenants", json=deploy_payload(handler=HANDLER), headers=auth(again))
+    assert again.app.state.stub.egress_input_fields("demo-echo") == []
+
+
+# ------------------------------------------------------------------ unpaid priced agents (2026-11-20)
+
+def priced(slug="demo-echo", price=0.002, payout=""):
+    body = deploy_payload(slug=slug, handler=HANDLER)
+    body["capability"]["price_per_call_usd"] = price
+    if payout:
+        body["payout_address"] = payout
+    return body
+
+
+def test_a_priced_agent_without_a_payout_is_told_it_serves_free(tmp_path, scripted_runner) -> None:
+    socket_path, _ = scripted_runner
+    c = wasm_client(tmp_path, socket_path, payments_enabled=True)
+    out = c.post("/v1/tenants", json=priced(), headers=auth(c)).json()
+    assert len(out["warnings"]) == 1 and "every call is served free" in out["warnings"][0]
+    assert "$0.002" in out["warnings"][0]
+    roster = {t["slug"]: t for t in c.get("/v1/hearth").json()["tenants"]}
+    assert "served free" in roster["demo-echo"]["unpaid_reason"]
+    listed = {t["slug"]: t for t in c.get("/v1/tenants", headers=auth(c)).json()["tenants"]}
+    assert "served free" in listed["demo-echo"]["unpaid_reason"]
+    # The call is indeed served without payment: what the warning says is what happens.
+    assert c.post("/t/demo-echo/invoke", json={}).status_code == 200
+
+
+@pytest.mark.parametrize(("price", "payout", "payments"), [
+    (0.002, "0x" + "ab" * 20, True),     # paid: an address
+    (0, "", True),                        # free on purpose
+    (0.002, "", False),                   # the operator turned payments off for every agent
+])
+def test_no_warning_when_nothing_is_lost(tmp_path, scripted_runner, price, payout, payments) -> None:
+    socket_path, _ = scripted_runner
+    c = wasm_client(tmp_path, socket_path, payments_enabled=payments)
+    out = c.post("/v1/tenants", json=priced(price=price, payout=payout), headers=auth(c)).json()
+    assert out["warnings"] == []
+    assert "unpaid_reason" not in c.get("/v1/hearth").json()["tenants"][0]
+
+
+def test_a_hub_that_bills_for_the_agent_narrows_the_warning(tmp_path, scripted_runner) -> None:
+    socket_path, _ = scripted_runner
+    c = wasm_client(tmp_path, socket_path, payments_enabled=True,
+                    tenant_hub_keys=(("https://hub.example.org", "k" * 40),))
+    body = priced()
+    body["owner_pubkey"] = "A" * 43 + "="          # the operator's own agent (hestia/names.py)
+    out = c.post("/v1/tenants", json=body, headers=auth(c)).json()
+    assert "calls through https://hub.example.org are billed there" in out["warnings"][0]
+    assert "straight to this hearth are served free" in out["warnings"][0]
+
+
+def test_the_owner_sees_its_unpaid_agents(tmp_path, scripted_runner) -> None:
+    socket_path, _ = scripted_runner
+    c = open_client(tmp_path, socket_path, payments_enabled=True)
+    stranger = Stranger()
+    stranger.deploy(c, "s-agent", "stranger.agent@v1")
+    row = c.app.state.store.get("s-agent")
+    c.app.state.store.upsert(row.__class__(**{**row.__dict__, "capability": {**row.capability, "price_per_call_usd": 0.001}}))
+    headers = sign_owner_request(stranger.key, hearth="http://127.0.0.1:9480", method="GET",
+                                 path="/v1/owners/me", body=b"")
+    me = c.get("/v1/owners/me", headers=headers).json()
+    assert "served free" in me["unpaid"]["s-agent"] and "hestia-owner billing" in me["unpaid"]["s-agent"]
+
+
+def test_the_owner_tool_repeats_the_warning(capsys, monkeypatch) -> None:
+    import httpx
+
+    from hestia import owner_cli
+    answer = {"ok": True, "warnings": ["priced at $0.001 per call with no payout_address: x"],
+              "unpaid": {"b": "priced at $0.001 per call with no payout_address: y"}}
+    monkeypatch.setattr(httpx, "request", lambda *a, **k: httpx.Response(200, json=answer))
+    assert owner_cli._send("http://hearth.test", Ed25519PrivateKey.generate(), "GET", "/v1/owners/me") == 0
+    err = capsys.readouterr().err
+    assert "WARNING: priced at $0.001" in err and "WARNING: b: priced at" in err

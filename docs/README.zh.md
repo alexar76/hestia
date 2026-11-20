@@ -69,6 +69,38 @@ hearth 在沙箱**之外**用租户自己的密钥对结果签名（密钥从不
 
 已在参考 hearth 上用一个陌生人编写的逃逸智能体验证：它尝试的每个路径都是 `FileNotFoundError`，网络和进程都不可用，环境中只有两个变量。
 
+### JavaScript 智能体
+
+自 2026-11-20 起，处理器也可以用 **JavaScript** 编写：在部署的 `source` 中写 `"language": "javascript"`。它在同一个 runner 中、以相同的限制运行，引擎是**编译为 WASI 的 QuickJS-ng 0.17.0**（在 `scripts/fetch_qjs_wasi.py` 中按 SHA-256 固定），不开放任何目录，也不传入任何环境变量。处理器是一个经典脚本（不是 ES 模块），定义 `handle(payload)`，普通函数或 `async` 均可；用到依赖包的项目先打包成一个文件，例如 `esbuild index.ts --bundle --format=iife --global-name=handler --platform=neutral`，得到 `handler.handle`。最多 200 000 个字符（部署请求须在 256 KiB 以内）。`fetch(url, {method, headers, body, json})` 与 Python 中相同：只能访问部署声明的 `egress_hosts`，经由 hearth 发出，返回一个 Promise，结果对象有 `ok`、`status`、`headers.get()`、`text()` 和 `json()`。
+
+**没有**的东西：Node 的模块（`fs`、`crypto`、`Buffer`、`process`）、定时器和真正的 I/O。引擎自带的 `qjs:std` 和 `qjs:os` 可以导入，但在 WASI 下它们除了处理器自己的输出什么也触及不到；hearth 签名的答案由 runner 的客户端代码在处理器结束后最后写出。永远无法完成的 Promise 会立即作为错误返回，深递归是 `RangeError`（引擎栈 256 KiB），内存、时间和输出与 Python 一样有上限。在智能体列表中此类智能体标有 `"language": "javascript"`。第一个是 `warden.scan@v1`（hestia-agents），即 WARDEN 对 MCP 工具定义的静态扫描。
+
+```json
+{"slug": "my-agent",
+ "capability": {"...": "..."},
+ "source": {"kind": "template", "language": "javascript",
+            "handler": "function handle(payload) { return {words: payload.text.split(/\\s+/).length}; }"},
+ "owner_pubkey": "...", "payout_address": "0x..."}
+```
+
+
+### 由调用方指定的主机
+
+智能体只能经由 hearth 访问网络，且只能访问部署中 `egress_hosts` 列出的主机（`HESTIA_TENANT_EGRESS=1`；规则见英文 README 的 “Network for agents” 一节）。有些检查针对的主机只有调用方知道：“*这个*域名是否发布了有效的 AID 记录，它的端点能否证明该密钥？”。自 2026-11-20 起，部署可以声明最多三个顶层**输入字段**，调用中这些字段的值（主机名或 `https://` URL）为本次调用额外放行这一个主机：
+
+```json
+{"slug": "aid-discover", "egress_hosts": ["cloudflare-dns.com", "dns.google"],
+ "egress_input_fields": ["domain", "endpoint"], "capability": {…}, "source": {…}}
+```
+
+传入 `{"domain": "example.com"}` 的调用因此可以访问 `https://example.com/…` 以及两个固定解析器；下一次换了域名的调用则不能。原有规则对这类主机全部适用（仅限公网地址、443 端口的 https、不跟随重定向、大小与时间限制）。此外：
+
+- 每个由调用方指定的主机在整个 hearth 上有独立预算 `DEFAULT_TARGET_PER_MINUTE`（所有智能体和调用方合计每分钟 20 次），因此不能把 hearth 当作冲击某个网站的工具；
+- 只有运营方和运营方准入的所有者可以声明输入字段。开放注册的密钥只能声明固定的 `egress_hosts`：否则一个免费密钥就成了从 hearth 地址访问任意公网站点的代理；
+- 智能体列表在 `egress_hosts` 旁显示 `egress_input_fields`，买家在调用前就能看到智能体可能访问哪里。
+
+同一次调用的每一轮都会得到相同的 **`CALL_NONCE`**（32 个随机字节的十六进制），两种语言中都是全局变量。需要新鲜挑战值的处理器（例如 AID 证明请求）使用它，并在每一轮请求相同的内容，这样 hearth 已经取回的响应就能对上。`aid.discover@v1`（hestia-agents）就建立在这两者之上。在沙箱中，Python 处理器现在也可以与 JavaScript 一样大（200 000 个字符）；沙箱之外仍为 32 000。
+
 ## 所有者
 
 共享的 hearth 承载多家企业的智能体，因此运营方令牌不再是唯一的钥匙。**所有者**是运营方准入的 Ed25519 密钥（`POST /v1/owners`）。所有者的每个请求都对以下内容签名：hearth 的公开地址、方法、路径、unix 时间戳（±300 秒）、一次性 nonce 和请求体的 SHA-256（`X-Hestia-Owner` / `-Timestamp` / `-Nonce` / `-Signature`，格式 `hestia-owner/1`，见 [`hestia/owners.py`](../hestia/owners.py)）。
@@ -111,6 +143,16 @@ python -m hestia.owner_cli domain --hearth https://hestia.example --key owner.ke
 4. `python -m hestia.owner_cli statement` 列出每一次这样的调用，用于与枢纽实际支付的金额核对。
 
 运营方自己的智能体（占位所有者密钥）由运营方配置了密钥的任何枢纽销售，收入归枢纽。没有收费的枢纽（`X-AIMarket-Hub-Charged: 0`，免费试用）拿不到所有者的智能体。运营方视图：`GET /v1/admin/hub-billing`。
+
+
+### 有价格却没有收款地址
+
+只有当 hearth 开启了支付、智能体价格大于零，**并且**部署时填写了 `payout_address`，调用才会收费。没有地址时，hearth 会免费提供每一次调用，而不是向“无人”收费：对买家安全，对本想卖钱的卖家却是无声的损失。自 2026-11-20 起，hearth 会在卖家查看的地方说明这一点：
+
+- 部署响应中带有 `warnings`（`hestia-owner` 和 `hestia_agents.cli deploy` 会打印出来）；
+- `/v1/hearth`、`/v1/tenants` 和 `/v1/owners/me`（`unpaid`）中，此类智能体带有 `unpaid_reason`。
+
+如果所有者选择的枢纽为该智能体收费（见上文），只有直接调用 hearth 是免费的，警告也会这样说明。若整个 hearth 关闭了支付则不提示：那是运营方的决定，重新部署无法改变。想要收款，请用自己的钱包重新部署：`hestia-owner deploy --key owner.key --body my-agent/deploy.json --payout 0x…`。
 
 ## 快速开始
 

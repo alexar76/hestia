@@ -16,7 +16,13 @@ deploy time:
   followed, no proxy from the environment is used, cookies are not kept, and responses are cut
   at MAX_RESPONSE_BYTES;
 - a tenant has a budget of requests per minute across all its calls, and every request is
-  logged with the tenant, host, status and size — never the body.
+  logged with the tenant, host, status and size — never the body;
+- caller-named hosts (since 2026-11-20): a deploy may name up to three top-level input fields
+  (`egress_input_fields`). Their value in a call — a host name or an https:// URL — adds that
+  one host for that one call, under every rule above. Each such host also has its own budget
+  across the whole hearth (DEFAULT_TARGET_PER_MINUTE), so many agents and many callers together
+  cannot point the hearth at one site. Open-signup owners may not declare them: a free key
+  would otherwise be a proxy to any public site from the hearth's address.
 
 Nothing a handler returns can add a host, change the method set or reach a private address.
 """
@@ -48,15 +54,22 @@ DEFAULT_PER_MINUTE = 60
 # All agents together. A key admits itself for free, so a per-agent budget alone does not bound
 # what the hearth's address sends: ten keys are ten agents.
 DEFAULT_HEARTH_PER_MINUTE = 600
+# One caller-named host, from every agent and caller together.
+DEFAULT_TARGET_PER_MINUTE = 20
+MAX_INPUT_FIELDS = 3
 METHODS = frozenset({"GET", "POST"})
 # Request headers a handler may set. Everything else (Host, Cookie, Connection, Proxy-*,
 # X-Forwarded-*) is dropped; the hearth sets Host and User-Agent itself.
 REQUEST_HEADERS = frozenset({"accept", "accept-language", "authorization", "content-type",
-                             "x-api-key"})
+                             "x-api-key",
+                             # RFC 9421 response signatures (AID endpoint proof, Appendix B)
+                             "accept-signature", "aid-domain", "cache-control"})
 # Response headers a handler sees.
 RESPONSE_HEADERS = frozenset({"content-type", "content-length", "date", "etag", "last-modified",
                               "location", "retry-after", "cache-control", "x-ratelimit-remaining",
-                              "x-ratelimit-reset", "payment-required"})
+                              "x-ratelimit-reset", "payment-required",
+                              # RFC 9421 signatures, and Link (rel="ard", rel="api-catalog")
+                              "signature", "signature-input", "link"})
 _LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
 _BLOCKED_SUFFIXES = (".localhost", ".local", ".internal", ".lan", ".home", ".corp", ".intranet",
                      ".arpa", ".onion", ".invalid", ".test", ".example")
@@ -96,6 +109,40 @@ def normalize_hosts(raw: list[str] | tuple[str, ...]) -> list[str]:
             hosts.append(host)
     if len(hosts) > MAX_HOSTS:
         raise ValueError(f"at most {MAX_HOSTS} egress hosts")
+    return hosts
+
+
+def host_from_input(value: Any) -> str | None:
+    """The host a caller named in an input field: a bare host name or an https:// URL. None for
+    anything that is not one public DNS name (an IP, a port, credentials, another scheme)."""
+    if not isinstance(value, str) or len(value) > 2048:
+        return None
+    text = value.strip()
+    if "://" in text:
+        parts = urlsplit(text)
+        if parts.scheme != "https" or parts.username or parts.password:
+            return None
+        try:
+            if parts.port not in (None, 443):
+                return None
+        except ValueError:
+            return None
+        text = parts.hostname or ""
+    try:
+        return normalize_host(text)
+    except ValueError:
+        return None
+
+
+def caller_hosts(fields: list[str] | tuple[str, ...], payload: Any) -> list[str]:
+    """The hosts a call's input names through the agent's declared input fields."""
+    hosts: list[str] = []
+    if not isinstance(payload, dict):
+        return hosts
+    for name in list(fields)[:MAX_INPUT_FIELDS]:
+        host = host_from_input(payload.get(name))
+        if host and host not in hosts:
+            hosts.append(host)
     return hosts
 
 
@@ -207,11 +254,13 @@ class Egress:
 
     def __init__(self, *, per_minute: int = DEFAULT_PER_MINUTE,
                  hearth_per_minute: int = DEFAULT_HEARTH_PER_MINUTE,
+                 target_per_minute: int = DEFAULT_TARGET_PER_MINUTE,
                  resolve: Callable[[str], list[str]] | None = None,
                  transport: httpx.AsyncBaseTransport | None = None,
                  user_agent: str = "hestia-egress/1") -> None:
         self.limit = RateLimit(per_minute)
         self.hearth_limit = RateLimit(hearth_per_minute)
+        self.target_limit = RateLimit(target_per_minute)
         self._resolve = resolve or _system_resolve
         self._transport = transport
         self.user_agent = user_agent
@@ -235,10 +284,14 @@ class Egress:
             raise EgressRefused(f"{host} resolves to a non-public address")
         return str(addresses[0])
 
-    async def fetch(self, slug: str, request: EgressRequest) -> dict[str, Any]:
+    async def fetch(self, slug: str, request: EgressRequest, *,
+                    caller_named: bool = False) -> dict[str, Any]:
         """The response a handler sees: {status, headers, text} or {error}."""
         if not self.limit.take(slug):
             raise EgressRefused(f"this agent's egress budget ({self.limit.per_minute}/min) is spent")
+        if caller_named and not self.target_limit.take(request.host):
+            raise EgressRefused(f"{request.host} has had its share of this hearth "
+                                f"({self.target_limit.per_minute}/min); retry in a minute")
         if not self.hearth_limit.take("*"):
             raise EgressRefused("this hearth's egress budget is spent; retry in a minute")
         address = await self._address(request.host)

@@ -142,7 +142,17 @@ def restore_stub_tenants(
     for row in store.list_running():
         if row.source_kind == "image":
             continue  # a container outlives the control plane; leave it alone
-        handler = stub.stored_handler(row.slug)
+        language, handler = (stub.stored_source(row.slug) if hasattr(stub, "stored_source")
+                             else ("python", stub.stored_handler(row.slug)))
+        js_file = Path(getattr(stub, "data_dir", "")) / "tenants" / row.slug / "handler.js"
+        if language == "python" and not handler.strip() and js_file.is_file():
+            # A JavaScript agent on a hearth that no longer runs the sandbox: brought back as
+            # a sealed stub it would answer every call with an echo, signed as the agent.
+            store.set_status(row.slug, "stopped",
+                             error="not restored: JavaScript agents run only in the wasm sandbox")
+            failed += 1
+            logger.warning("tenant %s not restored: a JavaScript agent outside the sandbox", row.slug)
+            continue
         if handler.strip() and code_allowed is not None and not code_allowed(row):
             store.set_status(
                 row.slug, "stopped",
@@ -159,7 +169,7 @@ def restore_stub_tenants(
                 handler=handler,
                 image_digest="",
                 profile=profile,
-                env={},
+                env={"HESTIA_HANDLER_LANGUAGE": language} if language != "python" else {},
             )
         except Exception as exc:  # noqa: BLE001 — one bad tenant must not stop the hearth
             store.set_status(

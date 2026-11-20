@@ -79,6 +79,70 @@ cientos donde el stub aguantaba unos treinta.
 Probado en el hearth de referencia con el agente de un desconocido escrito para escapar: cada ruta que probó dio
 `FileNotFoundError`, red y procesos no disponibles, su entorno tenía dos variables.
 
+### Agentes en JavaScript
+
+Desde el 20-11-2026 un handler también puede estar en **JavaScript**: `"language": "javascript"` en el
+`source` del despliegue. Se ejecuta en el mismo runner con los mismos límites, en **QuickJS-ng 0.17.0
+compilado a WASI** (fijado por SHA-256 en `scripts/fetch_qjs_wasi.py`), que no recibe ningún directorio
+abierto ni entorno. El handler es un script clásico (no un módulo ES) que define `handle(payload)`, normal o
+`async`; un proyecto con paquetes se empaqueta antes en un archivo, por ejemplo
+`esbuild index.ts --bundle --format=iife --global-name=handler --platform=neutral`, que deja `handler.handle`.
+Hasta 200 000 caracteres (la petición de despliegue debe caber en 256 KiB). `fetch(url, {method, headers,
+body, json})` funciona como en Python: solo los `egress_hosts` del despliegue, a través del hogar, y devuelve
+una Promise de una respuesta con `ok`, `status`, `headers.get()`, `text()` y `json()`.
+
+Lo que **no** hay: módulos de Node (`fs`, `crypto`, `Buffer`, `process`), temporizadores ni E/S real. Se
+pueden importar `qjs:std` y `qjs:os` del propio motor, y bajo WASI no alcanzan nada salvo la salida del propio
+handler; la respuesta que firma el hogar la escribe al final el invitado del runner, cuando el handler ha
+terminado. Una Promise que nunca puede resolverse se responde enseguida como error, la recursión profunda es un
+`RangeError` (pila del motor de 256 KiB), y memoria, tiempo y salida tienen el mismo límite que en Python. El
+listado muestra `"language": "javascript"` para ese agente. El primero es `warden.scan@v1` (hestia-agents), el
+análisis estático de definiciones de herramientas MCP de WARDEN.
+
+```json
+{"slug": "my-agent",
+ "capability": {"...": "..."},
+ "source": {"kind": "template", "language": "javascript",
+            "handler": "function handle(payload) { return {words: payload.text.split(/\\s+/).length}; }"},
+ "owner_pubkey": "...", "payout_address": "0x..."}
+```
+
+
+### Hosts que nombra quien llama
+
+Un agente llega a la red solo a través del hogar y solo a los hosts de `egress_hosts` de su
+despliegue (`HESTIA_TENANT_EGRESS=1`; las reglas están en el README en inglés, «Network for
+agents»). Algunas comprobaciones tratan de un host que solo conoce quien llama: «¿publica *este*
+dominio un registro AID válido y demuestra su endpoint la clave?». Desde el 20-11-2026 un
+despliegue puede nombrar hasta tres **campos de entrada** de primer nivel cuyo valor en una
+llamada —un nombre de host o una URL `https://`— añade ese único host para esa única llamada:
+
+```json
+{"slug": "aid-discover", "egress_hosts": ["cloudflare-dns.com", "dns.google"],
+ "egress_input_fields": ["domain", "endpoint"], "capability": {…}, "source": {…}}
+```
+
+Una llamada con `{"domain": "example.com"}` puede entonces consultar `https://example.com/…` además
+de los dos resolvedores fijos; la siguiente, con otro dominio, no. A ese host se le aplican todas
+las reglas habituales (solo direcciones públicas, https en 443, sin redirecciones, tamaños y
+tiempo). Además:
+
+- cada host nombrado por quien llama tiene su propio presupuesto en todo el hogar,
+  `DEFAULT_TARGET_PER_MINUTE` (20 peticiones por minuto de todos los agentes y llamantes juntos),
+  así que el hogar no puede dirigirse contra un sitio;
+- solo el operador y los propietarios que él admitió pueden declarar campos de entrada. Una clave
+  de registro abierto solo puede nombrar `egress_hosts` fijos: una clave gratuita con hosts de
+  quien llama sería un proxy hacia cualquier sitio público desde la dirección del hogar;
+- el listado muestra `egress_input_fields` junto a `egress_hosts`: el comprador ve a dónde puede
+  llegar el agente antes de llamarlo.
+
+Cada ronda de una llamada recibe además el mismo **`CALL_NONCE`**, 32 bytes aleatorios en hex,
+visible para el handler como global en ambos lenguajes. Un handler que necesita un desafío nuevo
+(una petición de prueba AID) lo usa y pide lo mismo en cada ronda, de modo que la respuesta que el
+hogar ya obtuvo le sirve. `aid.discover@v1` (hestia-agents) se apoya en ambos. En el sandbox un
+handler Python puede ser ahora tan grande como uno JavaScript, 200 000 caracteres; fuera de él
+siguen siendo 32 000.
+
 ## Propietarios
 
 Un hogar compartido aloja agentes de más de una empresa, así que el token del operador no es la única llave. Un **propietario** es una clave Ed25519 que el operador admite (`POST /v1/owners`). Cada petición de un propietario va firmada sobre la base pública del hogar, el método, la ruta, una marca unix (±300 s), un nonce de un solo uso y el SHA-256 del cuerpo (`X-Hestia-Owner` / `-Timestamp` / `-Nonce` / `-Signature`, formato `hestia-owner/1` en [`hestia/owners.py`](../hestia/owners.py)).
@@ -168,6 +232,22 @@ agentes en su nombre ([`hestia/hub_billing.py`](../hestia/hub_billing.py)):
 Los agentes del propio operador (clave provisional) los vende cualquier hub cuya clave configuró el
 operador, y el hub se queda lo cobrado. A un hub que no cobró (`X-AIMarket-Hub-Charged: 0`, prueba
 gratuita) no se le sirve el agente de un propietario. Vista del operador: `GET /v1/admin/hub-billing`.
+
+
+### Un precio sin dirección de cobro
+
+Una llamada solo se cobra si los pagos del hogar están activos, el precio del agente es mayor que cero
+**y** el despliegue indica una `payout_address`. Sin dirección, el hogar sirve cada llamada gratis en vez
+de cobrar a nadie: seguro para el comprador, una pérdida silenciosa para el vendedor que quería vender.
+Desde el 20-11-2026 el hogar lo dice donde mira el vendedor:
+
+- la respuesta del despliegue trae `warnings` (`hestia-owner` y `hestia_agents.cli deploy` los imprimen);
+- `/v1/hearth`, `/v1/tenants` y `/v1/owners/me` (`unpaid`) incluyen `unpaid_reason` para ese agente.
+
+Si un hub elegido por el propietario cobra por el agente (arriba), solo son gratis las llamadas directas al
+hogar, y el aviso lo dice así. No se avisa nada cuando los pagos están apagados en todo el hogar: es
+decisión del operador, no algo que arregle un nuevo despliegue. Para cobrar, vuelva a desplegar con su
+monedero: `hestia-owner deploy --key owner.key --body my-agent/deploy.json --payout 0x…`.
 
 ## Inicio rápido
 

@@ -24,6 +24,7 @@ from hestia.compute import (
 )
 from hestia.config import Settings
 from hestia.names import DOMAIN, holder_of
+from hestia.payout import agent_unpaid_reason
 from hestia.runtime.stub import StubRuntime
 from hestia.runtime.wasm import WasmRuntime
 from hestia.signing import ProviderSigner
@@ -288,11 +289,25 @@ def register(
                 hosts = stub.egress_hosts(row.slug)
                 if hosts:
                     item["egress_hosts"] = hosts
+                fields = stub.egress_input_fields(row.slug)
+                if fields:
+                    # Each of these input fields names one more host the CALLER lets a call reach.
+                    item["egress_input_fields"] = fields
+                # Python is the default and stays unnamed, so existing rows keep their shape.
+                if stub.handler_language(row.slug) == "javascript":
+                    item["language"] = "javascript"
             # Whose agent this is: the hearth operator's own (no admitted owner — the reference
             # agents carry the placeholder key), or an admitted owner's, by the label the
             # operator gave it. A dashboard counts "ours" against "third-party" from this.
             item["owner"] = ({"kind": "owner", "label": str(owner_record.get("label") or "")[:80]}
                              if owner_record else {"kind": "operator"})
+            # A priced agent that cannot be paid serves its calls free: say so where its owner,
+            # and a buyer, look first (hestia/payout.py).
+            unpaid = agent_unpaid_reason(store, settings, capability=row.capability,
+                                         payout_address=row.payout_address,
+                                         owner_pubkey=row.owner_pubkey)
+            if unpaid:
+                item["unpaid_reason"] = unpaid
             if owner_record and proven.get(owner_record["pubkey"]):
                 item["owner"]["domains"] = proven[owner_record["pubkey"]]
             rows.append(item)

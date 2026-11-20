@@ -228,8 +228,10 @@ def lint_wasm_handler(source: str) -> ast.Module:
     early, useful refusal: the source fits the template field, parses, and defines a
     synchronous `handle(payload)` at top level.
     """
-    if len(source) > 32_000:
-        raise HandlerDenied("handler is larger than 32 KiB")
+    from hestia.models import MAX_SANDBOX_HANDLER
+
+    if len(source) > MAX_SANDBOX_HANDLER:
+        raise HandlerDenied(f"a handler is at most {MAX_SANDBOX_HANDLER} characters")
     try:
         tree = ast.parse(source, filename="handler.py", mode="exec")
     except SyntaxError as exc:
@@ -245,6 +247,30 @@ def lint_wasm_handler(source: str) -> ast.Module:
             raise HandlerDenied("handle must be a plain function: the sandbox calls it once, "
                                 "synchronously")
     raise HandlerDenied("handler.py must define handle(payload) at top level")
+
+
+def lint_js_handler(source: str) -> None:
+    """Admission for a JavaScript handler (WebAssembly sandbox only, hestia.sandbox).
+
+    Like lint_wasm_handler, not a security check: QuickJS for WASI runs it with no preopened
+    directory, no environment, no sockets and the same limits. Python cannot parse JavaScript,
+    so what is refused here is what can be told without running it; a syntax error, or a script
+    that leaves no `handle`, fails its first call with the engine's message.
+    """
+    from hestia.models import MAX_JS_HANDLER
+
+    if len(source) > MAX_JS_HANDLER:
+        raise HandlerDenied(f"a JavaScript handler is at most {MAX_JS_HANDLER} characters")
+    if "\x00" in source:
+        raise HandlerDenied("a JavaScript handler is text: it contains a NUL character")
+    if "handle" not in source:
+        raise HandlerDenied("a JavaScript handler must define handle(payload) (a function "
+                            "declaration, or `handler.handle` from an esbuild --format=iife "
+                            "--global-name=handler bundle)")
+    head = source.lstrip("\ufeff \t\r\n")
+    if head.startswith(("import ", "import{", "export ", "export{")):
+        raise HandlerDenied("a JavaScript handler is a classic script, not an ES module: bundle "
+                            "it with esbuild --format=iife --global-name=handler")
 
 
 def _spec_bound_format_calls(tree: ast.AST) -> frozenset[int]:

@@ -1,7 +1,7 @@
 """WebAssembly runtime: template tenants with no process of their own.
 
-A tenant here is three files in its directory — capability.json, handler.py and
-tenant.key — and nothing that runs between calls. A call reaches the hearth, which hands
+A tenant here is three files in its directory — capability.json, handler.py (or handler.js
+for a JavaScript agent) and tenant.key — and nothing that runs between calls. A call reaches the hearth, which hands
 the handler's source and the payload to the sandbox runner (hestia.wasm_runner: its own
 container, no network, no secrets) over a Unix socket, gets the result back, and signs it
 with the tenant's own key here. The handler never shares a process, a filesystem or a key
@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import secrets
 import threading
 import time
 from dataclasses import dataclass
@@ -31,13 +32,14 @@ from hestia.egress import (
     Egress,
     EgressRefused,
     EgressRequest,
+    caller_hosts,
     request_key,
 )
 from hestia.models import CapabilitySpec
 from hestia.payments import MalformedTenantResponse
 from hestia.policy import IsolationProfile
 from hestia.runtime import RunningTenant
-from hestia.scan import lint_wasm_handler
+from hestia.scan import lint_js_handler, lint_wasm_handler
 from hestia.signing import ProviderSigner
 
 SCHEME = "wasm://"
@@ -105,11 +107,18 @@ class OpenLane:
             return len(self._owners)
 
 
+# The deploy names a JavaScript handler through the start env, like its egress hosts.
+LANGUAGE_ENV = "HESTIA_HANDLER_LANGUAGE"
+HANDLER_FILES = {"python": "handler.py", "javascript": "handler.js"}
+
+
 @dataclass(frozen=True)
 class WasmInvocation:
     source: str
     egress_hosts: tuple[str, ...]
     signer: ProviderSigner
+    language: str = "python"
+    input_fields: tuple[str, ...] = ()
 
 
 class WasmRuntime:
@@ -154,9 +163,22 @@ class WasmRuntime:
         cap_file = tenant_dir / "capability.json"
         cap_file.write_text(capability.model_dump_json(), encoding="utf-8")
         os.chmod(cap_file, 0o600)
-        handler_file = tenant_dir / "handler.py"
+        language = env.get(LANGUAGE_ENV) or "python"
+        if language not in HANDLER_FILES:
+            raise ValueError(f"unknown handler language {language!r}")
+        handler_file = tenant_dir / HANDLER_FILES[language]
+        # One handler per agent: a deploy (which always names the language) in the other
+        # language removes the old file, so a restart can never pick the stale one up. A
+        # restart names it too (app.restore_stub_tenants reads stored_source).
+        if LANGUAGE_ENV in env:
+            for other, name in HANDLER_FILES.items():
+                if other != language and (tenant_dir / name).exists():
+                    (tenant_dir / name).unlink()
         if handler.strip():
-            lint_wasm_handler(handler)
+            if language == "javascript":
+                lint_js_handler(handler)
+            else:
+                lint_wasm_handler(handler)
             handler_file.write_text(handler, encoding="utf-8")
             os.chmod(handler_file, 0o600)
         elif handler_file.exists():
@@ -165,9 +187,13 @@ class WasmRuntime:
         # passes no key and keeps the file; a redeploy always passes it, even empty.
         if "HESTIA_EGRESS_HOSTS" in env:
             hosts = [h for h in env["HESTIA_EGRESS_HOSTS"].split(",") if h]
+            fields = [f for f in env.get("HESTIA_EGRESS_INPUT_FIELDS", "").split(",") if f]
             egress_file = tenant_dir / "egress.json"
-            if hosts:
-                egress_file.write_text(json.dumps({"hosts": hosts}), encoding="utf-8")
+            if hosts or fields:
+                record: dict[str, Any] = {"hosts": hosts}
+                if fields:
+                    record["input_fields"] = fields
+                egress_file.write_text(json.dumps(record), encoding="utf-8")
                 os.chmod(egress_file, 0o600)
             elif egress_file.exists():
                 egress_file.unlink()
@@ -180,16 +206,42 @@ class WasmRuntime:
         self._signers.pop(handle, None)  # nothing runs between calls
 
     def stored_handler(self, slug: str) -> str:
+        """The agent's Python handler, or "" (none, or a JavaScript agent). Compute and the stub
+        restore read this, and both run Python only."""
         path = self._dir(slug) / "handler.py"
         return path.read_text(encoding="utf-8") if path.is_file() else ""
 
-    def egress_hosts(self, slug: str) -> list[str]:
+    def handler_language(self, slug: str) -> str | None:
+        """Which language the agent's handler is in, without reading it; None for a sealed stub."""
+        for language, name in HANDLER_FILES.items():
+            if (self._dir(slug) / name).is_file():
+                return language
+        return None
+
+    def stored_source(self, slug: str) -> tuple[str, str]:
+        """(language, source) of the agent's handler; ("python", "") for a sealed stub."""
+        for language, name in HANDLER_FILES.items():
+            path = self._dir(slug) / name
+            if path.is_file():
+                return language, path.read_text(encoding="utf-8")
+        return "python", ""
+
+    def _egress_record(self, slug: str) -> dict[str, Any]:
         path = self._dir(slug) / "egress.json"
         try:
-            hosts = json.loads(path.read_text(encoding="utf-8")).get("hosts") or []
-        except (OSError, ValueError, AttributeError):
-            return []
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return record if isinstance(record, dict) else {}
+
+    def egress_hosts(self, slug: str) -> list[str]:
+        hosts = self._egress_record(slug).get("hosts") or []
         return [h for h in hosts if isinstance(h, str)]
+
+    def egress_input_fields(self, slug: str) -> list[str]:
+        """Input fields whose value names a host the caller lets this one call fetch from."""
+        fields = self._egress_record(slug).get("input_fields") or []
+        return [f for f in fields if isinstance(f, str)]
 
     def health(self, slug: str) -> dict[str, Any]:
         return {"ok": True, "slug": slug, "status": "running", "runtime": "wasm"}
@@ -202,17 +254,22 @@ class WasmRuntime:
         return signer
 
     def invocation_snapshot(self, slug: str) -> WasmInvocation:
-        return WasmInvocation(
-            self.stored_handler(slug), tuple(self.egress_hosts(slug)), self._signer(slug)
-        )
+        language, source = self.stored_source(slug)
+        return WasmInvocation(source, tuple(self.egress_hosts(slug)), self._signer(slug), language,
+                              tuple(self.egress_input_fields(slug)))
 
     async def _run(self, source: str, payload: dict[str, Any],
-                   fetched: dict[str, Any] | None = None) -> tuple[int, dict[str, Any]]:
+                   fetched: dict[str, Any] | None = None,
+                   language: str = "python", seed: str = "") -> tuple[int, dict[str, Any]]:
         transport = httpx.AsyncHTTPTransport(uds=self.socket_path)
+        request = {"source": source, "payload": payload, "timeout_s": self.timeout_s,
+                   "fetched": fetched or {}}
+        if language != "python":
+            request["language"] = language  # an older runner, which ignores it, never sees one
+        if seed:
+            request["seed"] = seed
         async with httpx.AsyncClient(transport=transport, timeout=self.timeout_s + 15.0) as client:
-            response = await client.post("http://runner/run", json={
-                "source": source, "payload": payload, "timeout_s": self.timeout_s,
-                "fetched": fetched or {}})
+            response = await client.post("http://runner/run", json=request)
         try:
             body = response.json()
         except ValueError:
@@ -234,7 +291,10 @@ class WasmRuntime:
         in the open lane, and a full lane answers 503 (a platform refusal: a claimed payment
         is released). None: the operator's agent or one of an owner it admitted.
         """
-        source = snapshot.source if snapshot is not None else self.stored_handler(slug)
+        if snapshot is not None:
+            language, source = snapshot.language, snapshot.source
+        else:
+            language, source = self.stored_source(slug)
         if not source:
             result: dict[str, Any] = {
                 "echo": body,
@@ -247,7 +307,10 @@ class WasmRuntime:
                 return 503, {"ok": False, "error": LANE_BUSY}
             try:
                 status, outcome = await self._run_with_egress(
-                    slug, source, body, hosts=snapshot.egress_hosts if snapshot else None
+                    slug, source, body, hosts=snapshot.egress_hosts if snapshot else None,
+                    language=language,
+                    input_fields=(snapshot.input_fields if snapshot is not None
+                                  else tuple(self.egress_input_fields(slug))),
                 )
             finally:
                 if open_owner is not None:
@@ -277,14 +340,25 @@ class WasmRuntime:
 
     async def _run_with_egress(self, slug: str, source: str,
                                body: dict[str, Any], *,
-                               hosts: tuple[str, ...] | None = None) -> tuple[int, dict[str, Any]]:
+                               hosts: tuple[str, ...] | None = None,
+                               language: str = "python",
+                               input_fields: tuple[str, ...] = ()) -> tuple[int, dict[str, Any]]:
         """Run the handler; each time it asks for a response it does not have, fetch it (only
-        from this agent's egress hosts) and run it again with every response so far."""
+        from this agent's egress hosts, and the hosts this call's input names through its
+        declared input fields) and run it again with every response so far.
+
+        Every round of one call gets the same CALL_NONCE (32 random bytes, hex): a handler that
+        needs a fresh challenge (an AID proof request) asks for the same one in every round, so
+        the response the hearth already fetched answers it."""
         fetched: dict[str, Any] = {}
         total = 0
+        seed = secrets.token_hex(32)
+        declared = list(hosts) if hosts is not None else self.egress_hosts(slug)
+        named = [h for h in caller_hosts(input_fields, body) if h not in declared]
+        allowed = declared + named
         for _ in range(MAX_ROUNDS + 1):
             try:
-                status, outcome = await self._run(source, body, fetched)
+                status, outcome = await self._run(source, body, fetched, language, seed)
             except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
                 if fetched:
                     # A prior sandbox round may already have made an egress write.
@@ -306,8 +380,8 @@ class WasmRuntime:
             try:
                 if self.egress is None:
                     raise EgressRefused("this hearth gives agents no network")
-                request = EgressRequest.parse(raw, list(hosts) if hosts is not None else self.egress_hosts(slug))
-                response = await self.egress.fetch(slug, request)
+                request = EgressRequest.parse(raw, allowed)
+                response = await self.egress.fetch(slug, request, caller_named=request.host in named)
             except EgressRefused as exc:
                 response = {"refused": str(exc)[:300]}
             total += len(str(response.get("text") or ""))

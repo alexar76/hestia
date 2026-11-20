@@ -79,6 +79,72 @@ pas de mémoire ; des centaines tiennent là où le stub en gardait une trentain
 Prouvé sur le foyer de référence avec l'agent d'un inconnu écrit pour s'échapper : chaque chemin essayé a donné
 `FileNotFoundError`, réseau et processus indisponibles, deux variables dans son environnement.
 
+### Agents en JavaScript
+
+Depuis le 20/11/2026, un handler peut aussi être en **JavaScript** : `"language": "javascript"` dans le
+`source` du déploiement. Il s'exécute dans le même runner avec les mêmes limites, dans **QuickJS-ng 0.17.0
+compilé pour WASI** (épinglé par SHA-256 dans `scripts/fetch_qjs_wasi.py`), qui ne reçoit aucun répertoire
+ouvert ni aucun environnement. Le handler est un script classique (pas un module ES) qui définit
+`handle(payload)`, simple ou `async` ; un projet avec des paquets est d'abord regroupé en un fichier, par
+exemple `esbuild index.ts --bundle --format=iife --global-name=handler --platform=neutral`, qui laisse
+`handler.handle`. Jusqu'à 200 000 caractères (la requête de déploiement doit tenir dans 256 Kio).
+`fetch(url, {method, headers, body, json})` fonctionne comme en Python : seulement les `egress_hosts` du
+déploiement, via le foyer, et renvoie une Promise d'une réponse avec `ok`, `status`, `headers.get()`, `text()`
+et `json()`.
+
+Ce qui **n'y est pas** : les modules de Node (`fs`, `crypto`, `Buffer`, `process`), les minuteries et les vraies
+E/S. Les `qjs:std` et `qjs:os` du moteur peuvent être importés ; sous WASI ils n'atteignent rien d'autre que la
+sortie du handler, et la réponse que le foyer signe est écrite en dernier par l'invité du runner, une fois le
+handler terminé. Une Promise qui ne peut jamais se résoudre est aussitôt rendue comme une erreur, une récursion
+profonde est une `RangeError` (pile du moteur de 256 Kio), mémoire, temps et sortie sont plafonnés comme en
+Python. La liste montre `"language": "javascript"` pour cet agent. Le premier est `warden.scan@v1`
+(hestia-agents), l'analyse statique des définitions d'outils MCP de WARDEN.
+
+```json
+{"slug": "my-agent",
+ "capability": {"...": "..."},
+ "source": {"kind": "template", "language": "javascript",
+            "handler": "function handle(payload) { return {words: payload.text.split(/\\s+/).length}; }"},
+ "owner_pubkey": "...", "payout_address": "0x..."}
+```
+
+
+### Hôtes nommés par l'appelant
+
+Un agent n'atteint le réseau qu'à travers le foyer et seulement les hôtes des `egress_hosts` de
+son déploiement (`HESTIA_TENANT_EGRESS=1` ; les règles sont dans le README anglais, « Network for
+agents »). Certains contrôles portent sur un hôte que seul l'appelant connaît : « *ce* domaine
+publie-t-il un enregistrement AID valide, et son point d'accès prouve-t-il la clé ? ». Depuis le
+20/11/2026, un déploiement peut nommer jusqu'à trois **champs d'entrée** de premier niveau dont la
+valeur dans un appel — un nom d'hôte ou une URL `https://` — ajoute cet hôte pour ce seul appel :
+
+```json
+{"slug": "aid-discover", "egress_hosts": ["cloudflare-dns.com", "dns.google"],
+ "egress_input_fields": ["domain", "endpoint"], "capability": {…}, "source": {…}}
+```
+
+Un appel avec `{"domain": "example.com"}` peut alors interroger `https://example.com/…` en plus des
+deux résolveurs fixes ; l'appel suivant, avec un autre domaine, ne le peut pas. Toutes les règles
+habituelles s'appliquent à cet hôte (adresses publiques seulement, https sur 443, pas de
+redirection, tailles et délais). En plus :
+
+- chaque hôte nommé par l'appelant a son propre budget sur tout le foyer,
+  `DEFAULT_TARGET_PER_MINUTE` (20 requêtes par minute, tous agents et appelants confondus) : on ne
+  peut pas diriger le foyer contre un site ;
+- seuls l'opérateur et les propriétaires qu'il a admis peuvent déclarer des champs d'entrée. Une
+  clé d'inscription ouverte ne peut nommer que des `egress_hosts` fixes : une clé gratuite avec des
+  hôtes nommés par l'appelant serait un proxy vers n'importe quel site public depuis l'adresse du
+  foyer ;
+- la liste affiche `egress_input_fields` à côté d'`egress_hosts` : l'acheteur voit ce que l'agent
+  peut atteindre avant de l'appeler.
+
+Chaque tour d'un même appel reçoit aussi le même **`CALL_NONCE`**, 32 octets aléatoires en hex,
+global dans les deux langages. Un handler qui a besoin d'un défi frais (une demande de preuve AID)
+l'utilise et demande la même chose à chaque tour, si bien que la réponse déjà obtenue par le foyer
+lui répond. `aid.discover@v1` (hestia-agents) repose sur les deux. Dans le bac à sable, un handler
+Python peut désormais être aussi grand qu'un handler JavaScript, 200 000 caractères ; hors du bac à
+sable, la limite reste 32 000.
+
 ## Propriétaires
 
 Un foyer partagé héberge les agents de plusieurs entreprises : le jeton de l'opérateur n'est donc pas la seule clé. Un **propriétaire** est une clé Ed25519 que l'opérateur admet (`POST /v1/owners`). Chaque requête d'un propriétaire est signée sur la base publique du foyer, la méthode, le chemin, un horodatage unix (±300 s), un nonce à usage unique et le SHA-256 du corps (`X-Hestia-Owner` / `-Timestamp` / `-Nonce` / `-Signature`, format `hestia-owner/1` dans [`hestia/owners.py`](../hestia/owners.py)).
@@ -170,6 +236,25 @@ agents en son nom ([`hestia/hub_billing.py`](../hestia/hub_billing.py)) :
 Les agents de l'opérateur lui-même (clé factice) sont vendus par tout hub dont l'opérateur a configuré la
 clé, et le hub garde ce qu'il facture. Un hub qui n'a rien facturé (`X-AIMarket-Hub-Charged: 0`, essai
 gratuit) ne reçoit pas l'agent d'un propriétaire. Vue opérateur : `GET /v1/admin/hub-billing`.
+
+
+### Un prix sans adresse de paiement
+
+Un appel n'est facturé que si les paiements du foyer sont activés, que le prix de l'agent est
+supérieur à zéro **et** que le déploiement indique une `payout_address`. Sans adresse, le foyer sert
+chaque appel gratuitement plutôt que de facturer personne : sans risque pour l'acheteur, une perte
+silencieuse pour le vendeur qui voulait vendre. Depuis le 20/11/2026, le foyer le dit là où le vendeur
+regarde :
+
+- la réponse au déploiement contient `warnings` (`hestia-owner` et `hestia_agents.cli deploy` les
+  affichent) ;
+- `/v1/hearth`, `/v1/tenants` et `/v1/owners/me` (`unpaid`) portent `unpaid_reason` pour cet agent.
+
+Si un hub choisi par le propriétaire facture l'agent (ci-dessus), seuls les appels directs au foyer sont
+gratuits, et l'avertissement le dit. Rien n'est signalé quand les paiements sont coupés sur tout le
+foyer : c'est le choix de l'opérateur, pas quelque chose qu'un redéploiement corrige. Pour être payé,
+redéployez avec votre portefeuille : `hestia-owner deploy --key owner.key --body my-agent/deploy.json
+--payout 0x…`.
 
 ## Démarrage rapide
 

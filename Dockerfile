@@ -6,9 +6,12 @@ COPY hestia ./hestia
 COPY console ./console
 COPY docs/landing ./docs/landing
 COPY scripts/fetch_python_wasi.py ./scripts/fetch_python_wasi.py
+COPY scripts/fetch_qjs_wasi.py ./scripts/fetch_qjs_wasi.py
 RUN pip install --no-cache-dir ".[postgres,pqc,wasm]"
 # CPython for WASI (pinned by SHA-256): what the sandbox runner executes handlers in.
 RUN python scripts/fetch_python_wasi.py /opt/python-wasi
+# QuickJS-ng for WASI (pinned by SHA-256): what the runner executes JavaScript handlers in.
+RUN python scripts/fetch_qjs_wasi.py /opt/qjs-wasi
 # /run/hestia-runner seeds the socket volume the hearth and the runner share, owned by the
 # unprivileged user both run as.
 RUN mkdir -p /data /run/hestia-runner && chown 65532:65532 /data /run/hestia-runner
@@ -18,6 +21,7 @@ ENV HOST=0.0.0.0 \
     HESTIA_DATA_DIR=/data \
     HESTIA_RUNTIME=stub \
     HESTIA_WASM_ROOT=/opt/python-wasi \
+    HESTIA_QJS_WASM=/opt/qjs-wasi/qjs-wasi.wasm \
     HESTIA_ALLOW_HOST_DOCKER=0 \
     HESTIA_PQC=1 \
     AIMARKET_PROVIDER_IDENTITY_FILE=/data/provider.key \

@@ -17,6 +17,7 @@ from hestia.hub_billing import ACCOUNT_RE
 from hestia.names import NameTaken, claim_domain, domains_of
 from hestia.names import reverse as reverse_domain
 from hestia.owners import OwnerProofError, canonical_owner_key, code_right, has_owner_headers
+from hestia.payout import agent_unpaid_reason
 from hestia.store import TenantStore
 
 
@@ -121,7 +122,15 @@ def register(
             raise HTTPException(status_code=401, detail="owner signature required")
         principal = await run_in_threadpool(_principal, request, await request.body())
         owner = store.get_owner(principal.owner)
-        mine = [row.slug for row in store.list_all() if _owns(principal, row)]
+        rows = [row for row in store.list_all() if _owns(principal, row)]
+        mine = [row.slug for row in rows]
+        unpaid = {}
+        for row in rows:
+            reason = agent_unpaid_reason(store, settings, capability=row.capability,
+                                         payout_address=row.payout_address,
+                                         owner_pubkey=row.owner_pubkey)
+            if reason:
+                unpaid[row.slug] = reason
         return {
             "ok": True,
             "owner": principal.owner,
@@ -135,6 +144,8 @@ def register(
             # "open": this owner's agents share the open sandbox lane (a 503 means it was full).
             "admitted_by": (owner or {}).get("admitted_by", ""),
             "tenants": mine,
+            # Priced agents of this owner whose calls are served free, and why (hestia/payout.py).
+            "unpaid": unpaid,
             "billing": store.owner_billing(principal.owner) if owner else {},
             "hubs_this_hearth_can_bill_for": [url for url, _ in settings.tenant_hub_keys],
         }

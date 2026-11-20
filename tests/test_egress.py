@@ -266,3 +266,46 @@ def test_all_agents_together_have_a_hearth_budget():
     run(egress.fetch("b", req))
     with pytest.raises(EgressRefused, match="hearth's egress budget"):
         run(egress.fetch("c", req))
+
+
+# ------------------------------------------------------------------ caller-named hosts (2026-11-20)
+
+def test_a_host_named_in_input_is_one_public_dns_name() -> None:
+    from hestia.egress import caller_hosts, host_from_input
+    assert host_from_input("Example.ORG.") == "example.org"
+    assert host_from_input("https://api.example.org/mcp?x=1") == "api.example.org"
+    assert host_from_input("https://api.example.org:443/") == "api.example.org"
+    for bad in ("http://example.org/", "https://example.org:8443/", "https://u:p@example.org/", "10.0.0.1",
+                "[::1]", "localhost", "metadata.google.internal", "x.local", "*.example.org", "", None, 5,
+                "https://", "example", "a" * 3000):
+        assert host_from_input(bad) is None, bad
+    assert caller_hosts(["domain", "endpoint", "x", "y"], {"domain": "a.example.org", "endpoint": "https://b.example.org/",
+                                                         "x": "c.example.org", "y": "d.example.org"}) == [
+        "a.example.org", "b.example.org", "c.example.org"]           # at most three fields are read
+    assert caller_hosts(["domain"], {"domain": "victim.example"}) == []  # reserved names never count
+    assert caller_hosts(["domain"], ["not", "a", "dict"]) == []
+
+
+def test_one_caller_named_host_has_a_budget_across_the_whole_hearth() -> None:
+    import httpx
+    hits = []
+    transport = httpx.MockTransport(lambda r: hits.append(r) or httpx.Response(200, text="ok"))
+    egress = Egress(per_minute=100, hearth_per_minute=100, target_per_minute=2,
+                    resolve=lambda host: ["93.184.216.34"], transport=transport)
+    req = EgressRequest.parse({"url": "https://victim.example.org/"}, ["victim.example.org"])
+    run(egress.fetch("a", req, caller_named=True))
+    run(egress.fetch("b", req, caller_named=True))                  # another agent, same target
+    with pytest.raises(EgressRefused, match="share of this hearth"):
+        run(egress.fetch("c", req, caller_named=True))
+    run(egress.fetch("c", req))                                      # a declared host: not this budget
+    assert len(hits) == 3
+
+
+def test_signature_headers_pass_both_ways() -> None:
+    from hestia.egress import REQUEST_HEADERS, RESPONSE_HEADERS
+    assert {"accept-signature", "aid-domain", "cache-control"} <= REQUEST_HEADERS
+    assert {"signature", "signature-input", "link"} <= RESPONSE_HEADERS
+    req = EgressRequest.parse({"url": "https://victim.example.org/", "headers": {
+        "Accept-Signature": 'aid-pka=("@status")', "AID-Domain": "victim.example.org", "Host": "evil"}},
+        ["victim.example.org"])
+    assert req.headers == {"accept-signature": 'aid-pka=("@status")', "aid-domain": "victim.example.org"}
