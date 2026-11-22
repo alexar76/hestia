@@ -2,13 +2,18 @@
 
 🌐 **English** · [Русский](AGENTS.ru.md) · [Español](AGENTS.es.md) · [Français](AGENTS.fr.md) · [中文](AGENTS.zh.md)
 
-Twenty-nine agents that run on the reference hearth, [hestia.modelmarket.dev](https://hestia.modelmarket.dev),
+Thirty-one agents that run on the reference hearth, [hestia.modelmarket.dev](https://hestia.modelmarket.dev),
 sold by modelmarket (payouts to the treasury). The hearth signs every answer with Ed25519 over the result, the
 capability and the SHA-256 of the input. Most agents are pure functions of their input: no clock, no network, no
 randomness, so the same request always gets the same answer and the same signature, and anyone can re-run it to
 check. The ones that read public sources (a chain, a registry, DNS, a site) say so below: their hosts are public on
 the hearth's roster, they reach only those and any host you name in the call, and where the state they read moves
 they pin a block or say what they read. They all run in the hearth's WebAssembly sandbox.
+
+**Base RPC.** Agents that read Base ask the hearth's own pool first, `base-rpc.hestia.modelmarket.dev`: the
+hearth answers that name itself, from a cache for reads pinned to a block and from free public Base RPCs in
+turn, so one busy agent does not use up a public RPC's per-address limit for every other. On a hearth without
+the pool they read the public RPC named in their entry.
 
 ## How to call one
 
@@ -34,7 +39,8 @@ classic prompt-injection phrases are refused. Called directly on the hearth, not
 | [merkle-proof](#merkle-proof) | `merkle.proof@v1` | $0.002 | Merkle roots and proofs: RFC 6962 logs and OpenZeppelin trees |
 | [x402-check](#x402-check) | `x402.authorization.check@v1` | $0.003 | who signed an x402 payment, for what, and will USDC accept it |
 | [x402-settlement](#x402-settlement) | `x402.settlement.check@v1` | $0.000 | did this x402 payment settle on Base: to whom, how much, and is it final |
-| [onchain-price](#onchain-price) | `crypto.price.onchain@v1` | $0.000 | the price of ETH or BTC from Uniswap v3 pools on Base, time-weighted, pinned to a block |
+| [x402-seller](#x402-seller) | `x402.seller.record@v1` | $0.003 | who has actually paid this x402 payee on Base: payments, payers, returning payers, per day |
+| [onchain-price](#onchain-price) | `crypto.price.onchain@v1` | $0.000 | the price of ETH, BTC or any Base token from Uniswap v3 pools on Base, time-weighted, pinned to a block |
 | [esim-prices](#esim-prices) | `esim.price.history@v1` | $0.000 | how the wholesale price of eSIM plans for a country has moved |
 | [tlog-checkpoint](#tlog-checkpoint) | `tlog.checkpoint.verify@v1` | $0.000 | is a transparency-log checkpoint signed by the log and cosigned by enough witnesses |
 | [http-signature](#http-signature) | `http.signature.verify@v1` | $0.000 | does an HTTP message's RFC 9421 signature verify, and what does it cover |
@@ -49,6 +55,7 @@ classic prompt-injection phrases are refused. Called directly on the hearth, not
 | [aid-discover](#aid-discover) | `aid.discover@v1` | $0.000 | does this domain's agent prove the key its DNS publishes, end to end |
 | [histor-witnessed](#histor-witnessed) | `histor.witnessed@v1` | $0.000 | is this MCP tool set in HISTOR's log, under a head independent witnesses signed |
 | [histor-changed](#histor-changed) | `histor.changed_since@v1` | $0.000 | what changed in an MCP server's tools since the set you approved, and the token cost |
+| [mcp-money-changes](#mcp-money-changes) | `mcp.money_tools.changes@v1` | $0.002 | which public MCP servers changed tools that move value or hold keys (seven days, from HISTOR) |
 | [warden-scan](#warden-scan) | `warden.scan@v1` | $0.000 | is this MCP tool list safe to show a model (WARDEN's static rules) |
 | [registry-entry](#registry-entry) | `registry.entry.verify@v1` | $0.000 | do an MCP registry entry's packages and domain still name it, by the registry's own rules |
 | [package-provenance](#package-provenance) | `package.provenance.verify@v1` | $0.000 | was this npm or PyPI release built where it says, and is that on Sigstore's log |
@@ -277,6 +284,23 @@ read the server. HISTOR's own signed answer comes back as `histor_check`. Free.
 {"endpoint": "https://modelmarket.dev/mcp", "approved_digest": "sha256-+tgzggq0506M928osbUhi0t1DVKtNLSEajxgP4lCjww="}
 ```
 
+### mcp-money-changes
+
+Which public MCP servers changed a tool that can move money or touch keys? HISTOR reads public MCP
+servers every day and records about 6,000 tool-list changes a day; its money-tool feed
+(`histor/money_changes.py`, rules `money-tools/v1`) keeps the few that matter to an agent that can pay:
+a tool added that sends, swaps or withdraws; a value-moving tool whose description or schema changed;
+a wallet address added to or replaced in a tool's description (high); a new mention of private keys or
+seed phrases (low, often a warning: the added text comes with it). Ask with `since` (an ISO time in
+UTC, or a change id: a poller passes the last `cursor`), `min_severity`, `server` (part of a name,
+endpoint or website), `flags` and `limit`. Each item names the server, its HISTOR page and the tools;
+the answer carries the feed's time, cursor and SHA-256. Seven days, rebuilt every hour. A flag says
+what changed, not that a server is malicious. It reaches only histor.modelmarket.dev. $0.002.
+
+```json
+{"min_severity": "medium", "since": "2026-11-22T00:00:00Z", "limit": 10}
+```
+
 ### x402-settlement
 
 Did this x402 payment really settle? Give `tx`, the address that should have been paid
@@ -286,13 +310,31 @@ does: the chain, a successful transaction in a canonical block, and a USDC Trans
 exactly the amount. With `payer` and `nonce` it also requires the buyer's EIP-3009
 `AuthorizationUsed` right before that transfer, so the transfer is the one that authorization made.
 Verdicts: `paid` (finalized), `paid_not_final`, `not_paid`, `failed`, `pending`, `wrong_chain`, with
-confirmations. Base and Base Sepolia (`network`); it reaches only their public RPCs. Free.
+confirmations. Base and Base Sepolia (`network`); it reaches the hearth's Base RPC pool and, without one, their public RPCs. Free.
 
 ```json
 {"tx": "0xd8a41fb865beba51d9e795f556dc3b77e6ce5bb20a0dceb2e0691aa791997531",
  "pay_to": "0xb73d8bc93b791510c4733c5c5ac2015a3c2930ec", "amount_usd": "0.022",
  "payer": "0x9d24d267cf8d9a8b9ed104b4856cde8830c266ef",
  "nonce": "0x84428e7eae7b08cac1ec9186e338e14fa5056d9f62bb9d92e1ea927370b8e779"}
+```
+
+### x402-seller
+
+Before paying an x402 seller, see whether anyone else does. Give the payee address (`pay_to`) or the
+paid URL (`url`, with `method` and `body`): one unpaid request reads payTo and the price from its 402.
+The agent reads every USDC Transfer to that address on Base over the last `days` (1 to 7, default 7),
+in ranges of at most 50,000 blocks, and reports how many payments, how much, from how many payers, how
+many payers came back, the busiest payer's share, the common amounts and how many were exactly the
+price, and payments per UTC day. `activity` labels the numbers: `none`, `one_payer`, `concentrated`
+(one payer made half the payments or more, from three payments up), `few_payers`, `spread`. Every
+block range it read is listed; `to_block` pins the window so the answer can be checked again. A
+transfer proves money moved, not that a service was delivered or who controls the payers. It reaches
+the hearth's Base RPC pool (else base-rpc.publicnode.com) and, with `url`, that host. $0.003.
+
+```json
+{"url": "https://tienda.textokit.store/api/translate-es", "method": "POST",
+ "body": {"text": "hola"}, "days": 7}
 ```
 
 ### onchain-price
@@ -310,8 +352,11 @@ it. With `pool`, any Uniswap v3 pool on Base: the agent checks that the factory 
 prices token0 in token1 and back. Every read is pinned to one block (`block`, or the latest when
 the call starts), so the same input and block give the same answer, and anyone can recompute it
 from Base's public state. An RPC error is an error, never a zero. Not a market-wide price: USDC is
-taken as one dollar, and there is no volume or market capitalisation. It reaches only
-`mainnet.base.org`. Free.
+taken as one dollar, and there is no volume or market capitalisation. Or give `token`, any ERC-20 address on Base: the factory's getPool finds its pools with USDC and WETH
+(four fee tiers each), the price comes from the deepest USDC pool that traded in the window, else
+from the deepest WETH pool times the ETH price, and when both routes price it how far apart they are
+is a check; a thin pool's price is cheap to move, so read `liquidity`. Every mode reads through the hearth's Base RPC pool, else
+`base-rpc.publicnode.com`. Free.
 
 ```json
 {"asset": "ETH", "window_s": 1800}
@@ -530,7 +575,7 @@ called. Then payTo on chain: a key, a contract or an EIP-7702 delegate, and the 
 `window_hours` (default 24), from how many payers; and whether modelmarket.dev lists the seller as an observed x402
 seller with this payTo pinned. Verdict `looks_payable`, `review_first` (something an agent should not decide
 alone, such as a payee with no payments in the window), `do_not_pay`, `no_payment_required` or `not_x402`. It pays
-nothing and signs nothing. It reaches the host you name, Base's public RPCs (publicnode) and modelmarket.dev. Free.
+nothing and signs nothing. It reaches the host you name, the hearth's Base RPC pool (else Base's public RPCs at publicnode) and modelmarket.dev. Free.
 
 ```json
 {"url": "https://tienda.textokit.store/api/translate-es", "method": "POST", "body": {"text": "hola"},

@@ -72,6 +72,19 @@ class Claim:
     request_key: str
 
 
+
+def _rpc_pool(spec: str):
+    """HESTIA_RPC_POOL: "default" (the free endpoints in hestia.rpc_pool), "0"/"off", or JSON."""
+    from hestia.rpc_pool import RpcPool
+
+    if spec.lower() in ("0", "off", "false", "no"):
+        return None
+    if spec.lower() in ("default", "1", "on", "true", "yes"):
+        return RpcPool()
+    import json
+
+    return RpcPool(json.loads(spec))
+
 def tenant_handle(source_kind: str, slug: str) -> str:
     """The runtime handle for a slug, derived — never remembered.
 
@@ -373,6 +386,9 @@ def build_app(settings: Settings | None = None) -> FastAPI:
                     open_slots=settings.open_lane_slots, open_wait_s=settings.open_lane_wait_s,
                     egress=(Egress(per_minute=settings.tenant_egress_per_minute,
                                    hearth_per_minute=settings.tenant_egress_hearth_per_minute,
+                                   rpc_calls_per_minute=settings.tenant_rpc_calls_per_minute,
+                                   hearth_rpc_calls_per_minute=settings.hearth_rpc_calls_per_minute,
+                                   rpc_pool=_rpc_pool(settings.rpc_pool),
                                    user_agent=f"hestia-egress/1 (+{settings.public_base})")
                             if settings.tenant_egress else None))
         if settings.runtime == "wasm"

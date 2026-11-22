@@ -56,6 +56,10 @@ DEFAULT_PER_MINUTE = 60
 DEFAULT_HEARTH_PER_MINUTE = 600
 # One caller-named host, from every agent and caller together.
 DEFAULT_TARGET_PER_MINUTE = 20
+# JSON-RPC calls, counted one by one inside a batch: a public RPC counts them that way, and one
+# request of 24 eth_calls is 24 of its calls. Per agent, and for the whole hearth.
+DEFAULT_RPC_CALLS_PER_MINUTE = 600
+DEFAULT_HEARTH_RPC_CALLS_PER_MINUTE = 3000
 MAX_INPUT_FIELDS = 3
 METHODS = frozenset({"GET", "POST"})
 # Request headers a handler may set. Everything else (Host, Cookie, Connection, Proxy-*,
@@ -215,6 +219,13 @@ class EgressRequest:
         clean = urlunsplit(("https", host, parts.path or "/", parts.query, ""))
         return cls(method=method, url=clean, host=host, headers=headers, body=body)
 
+def _rpc_calls(body: str | None) -> int:
+    """JSON-RPC calls in a request body, each call of a batch counted; 0 if it is not JSON-RPC."""
+    from hestia.rpc_pool import RpcPool
+
+    return RpcPool.calls(body)
+
+
 def request_key(raw: dict[str, Any]) -> str:
     """The key the guest stores a response under: the request exactly as the handler asked
     for it. Must match hestia.sandbox GUEST `_key` byte for byte."""
@@ -234,15 +245,15 @@ class RateLimit:
         self._lock = threading.Lock()
         self._seen: dict[str, deque[float]] = {}
 
-    def take(self, slug: str, now: float | None = None) -> bool:
+    def take(self, slug: str, now: float | None = None, n: int = 1) -> bool:
         now = time.monotonic() if now is None else now
         with self._lock:
             window = self._seen.setdefault(slug, deque())
             while window and window[0] <= now - 60.0:
                 window.popleft()
-            if len(window) >= self.per_minute:
+            if len(window) + n > self.per_minute:
                 return False
-            window.append(now)
+            window.extend([now] * n)
             return True
 
 
@@ -255,12 +266,20 @@ class Egress:
     def __init__(self, *, per_minute: int = DEFAULT_PER_MINUTE,
                  hearth_per_minute: int = DEFAULT_HEARTH_PER_MINUTE,
                  target_per_minute: int = DEFAULT_TARGET_PER_MINUTE,
+                 rpc_calls_per_minute: int = DEFAULT_RPC_CALLS_PER_MINUTE,
+                 hearth_rpc_calls_per_minute: int = DEFAULT_HEARTH_RPC_CALLS_PER_MINUTE,
+                 rpc_pool: Any = None,
                  resolve: Callable[[str], list[str]] | None = None,
                  transport: httpx.AsyncBaseTransport | None = None,
                  user_agent: str = "hestia-egress/1") -> None:
         self.limit = RateLimit(per_minute)
         self.hearth_limit = RateLimit(hearth_per_minute)
         self.target_limit = RateLimit(target_per_minute)
+        self.rpc_limit = RateLimit(rpc_calls_per_minute)
+        self.hearth_rpc_limit = RateLimit(hearth_rpc_calls_per_minute)
+        #: hestia.rpc_pool.RpcPool: names an agent declares that the hearth answers from its pool
+        #: of free RPC endpoints instead of resolving them.
+        self.rpc_pool = rpc_pool
         self._resolve = resolve or _system_resolve
         self._transport = transport
         self.user_agent = user_agent
@@ -294,6 +313,28 @@ class Egress:
                                 f"({self.target_limit.per_minute}/min); retry in a minute")
         if not self.hearth_limit.take("*"):
             raise EgressRefused("this hearth's egress budget is spent; retry in a minute")
+        calls = _rpc_calls(request.body) if request.method == "POST" else 0
+        if calls:
+            if not self.rpc_limit.take(slug, n=calls):
+                raise EgressRefused(f"this agent's RPC budget ({self.rpc_limit.per_minute} calls/min) "
+                                    "is spent")
+            if not self.hearth_rpc_limit.take("*", n=calls):
+                raise EgressRefused("this hearth's RPC budget is spent; retry in a minute")
+        if self.rpc_pool is not None and request.host in self.rpc_pool.hosts:
+            async def upstream(host: str, url: str, body: str) -> dict[str, Any]:
+                return await self._send(slug, EgressRequest(
+                    method="POST", url=url, host=host,
+                    headers={"content-type": "application/json", "accept": "application/json"},
+                    body=body))
+
+            reply = await self.rpc_pool.handle(request.host, request.method, request.body, upstream)
+            if len(reply["text"].encode("utf-8")) > MAX_RESPONSE_BYTES:
+                raise EgressRefused(f"response is larger than {MAX_RESPONSE_BYTES} bytes")
+            return reply
+        return await self._send(slug, request)
+
+    async def _send(self, slug: str, request: EgressRequest) -> dict[str, Any]:
+        """The request itself: HTTPS to the checked public address, cut at the cap."""
         address = await self._address(request.host)
         parts = urlsplit(request.url)
         literal = f"[{address}]" if ":" in address else address

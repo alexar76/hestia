@@ -149,6 +149,12 @@ class Settings:
     tenant_egress: bool = False
     tenant_egress_per_minute: int = 60
     tenant_egress_hearth_per_minute: int = 600
+    # hestia.rpc_pool: JSON-RPC calls (each call of a batch) per agent and for the hearth, per
+    # minute; HESTIA_RPC_POOL=0 turns the pool of free RPC endpoints off, a JSON object replaces
+    # its chains ({"<name>": {"chain_id": "0x…", "upstreams": [{"url", "per_second", "logs_range"}]}}).
+    tenant_rpc_calls_per_minute: int = 600
+    hearth_rpc_calls_per_minute: int = 3000
+    rpc_pool: str = "default"
     # Name prefixes the operator holds from boot (hestia/names.py): no owner may deploy a
     # capability family, product or publisher whose folded name starts with one. `hestia`
     # is always the hearth's own.
@@ -432,6 +438,11 @@ class Settings:
             tenant_egress_per_minute=max(1, int(os.environ.get("HESTIA_TENANT_EGRESS_PER_MINUTE", "60"))),
             tenant_egress_hearth_per_minute=max(
                 1, int(os.environ.get("HESTIA_TENANT_EGRESS_HEARTH_PER_MINUTE", "600"))),
+            tenant_rpc_calls_per_minute=max(
+                1, int(os.environ.get("HESTIA_TENANT_RPC_CALLS_PER_MINUTE", "600"))),
+            hearth_rpc_calls_per_minute=max(
+                1, int(os.environ.get("HESTIA_HEARTH_RPC_CALLS_PER_MINUTE", "3000"))),
+            rpc_pool=os.environ.get("HESTIA_RPC_POOL", "default").strip() or "default",
             reserved_prefixes=tuple(p.lower() for p in _csv("HESTIA_RESERVED_PREFIXES"))
             or DEFAULT_RESERVED_PREFIXES,
             doh_url=os.environ.get("HESTIA_DOH_URL", "").strip()

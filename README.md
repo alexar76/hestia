@@ -200,6 +200,8 @@ What the hearth enforces (`hestia/egress.py`), whatever the handler asks:
 | response headers a handler sees | `content-type`, `content-length`, `date`, `etag`, `last-modified`, `location`, `retry-after`, `cache-control`, rate-limit headers, `payment-required`, `signature`, `signature-input`, `link` |
 | sizes, time | request body ≤ 64 KiB, response ≤ 256 KiB, 5 s per request |
 | budget | `HESTIA_TENANT_EGRESS_PER_MINUTE` (60) per agent, `HESTIA_TENANT_EGRESS_HEARTH_PER_MINUTE` (600) for all agents together |
+| RPC calls | each JSON-RPC call in a request counts, a batch call by call: `HESTIA_TENANT_RPC_CALLS_PER_MINUTE` (600) per agent, `HESTIA_HEARTH_RPC_CALLS_PER_MINUTE` (3000) for all agents; a public RPC counts them the same way |
+| RPC pool | `base-rpc.hestia.modelmarket.dev` is answered by the hearth itself (`hestia/rpc_pool.py`): block-pinned reads from a cache, the rest from free public Base RPCs in turn, each within its own calls per second, a refused call moved to the next; read methods only; `HESTIA_RPC_POOL` (`default`, `0`, or JSON chains) |
 | log | tenant, method, host, status, bytes, ms — never a body |
 
 A refused request reaches the handler as an exception (`egress refused: …`), so a buyer gets
@@ -441,6 +443,8 @@ sandbox runner too when `HESTIA_RUNTIME=wasm`, and waits until both are healthy.
 | `HESTIA_TENANT_HUB_KEYS` | empty | `url=key,…`: hubs that may sell tenants on their owners' behalf (each key = that hub's `AIMARKET_PEER_API_KEYS` entry for this hearth) |
 | `HESTIA_TENANT_EGRESS` | `0` | `1` = wasm agents may `fetch()` from the hosts their deploy names, through the hearth (see *Network for agents*) |
 | `HESTIA_TENANT_EGRESS_PER_MINUTE` / `HESTIA_TENANT_EGRESS_HEARTH_PER_MINUTE` | `60` / `600` | Egress requests per agent / for all agents together, per minute |
+| `HESTIA_TENANT_RPC_CALLS_PER_MINUTE` / `HESTIA_HEARTH_RPC_CALLS_PER_MINUTE` | `600` / `3000` | JSON-RPC calls (each call of a batch) per agent / for all agents, per minute |
+| `HESTIA_RPC_POOL` | `default` | The hearth's pool of free RPCs (`hestia/rpc_pool.py`): `default`, `0` to turn it off, or a JSON object of chains |
 | `HESTIA_OPEN_OWNERS` | `0` | `1` = any valid owner key admits itself on first deploy; code only with `HESTIA_OPEN_OWNER_CODE=1` under `wasm` |
 | `HESTIA_OWNER_SKEW_S` | `300` | Owner request clock window, seconds |
 | `HESTIA_MAX_TENANTS` | `32` (compose `8`) | Hard cap on running + quarantined agents (a stopped one keeps its slug, not its place). Stub tenants are resident processes (~31 MB each); `wasm` tenants cost disk only (the reference hearth runs 256) |
