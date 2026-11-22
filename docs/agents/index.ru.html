@@ -217,7 +217,7 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
 <div class="proof-top"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span>handler_sha256</span></div>
 <div class="p-slug">x402-preflight<code>x402.preflight@v1</code></div>
 <div class="p-row"><span class="p-k">опубликован здесь</span>
-<code class="p-v">2c6c2fea7e00e08e…aa0c09af</code></div>
+<code class="p-v">1078e4287325a89f…4829a5dc</code></div>
 <div class="p-eq" aria-hidden="true" data-live-eq="x402-preflight">?</div>
 <div class="p-row live"><span class="p-k">работает на Гестии</span><code class="p-v" data-live-sha="x402-preflight">…</code></div>
 <div class="p-verdict"><span class="chip" data-live="x402-preflight">проверяю…</span></div>
@@ -1202,20 +1202,20 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
   }
  }
 }</code></pre></details>
-</section><section class="agent" id="x402-seller" data-agent="x402-seller" data-sha="2150f4a97f7ac8267290fc950ebca3e748e80e63c55102dafb0767976f765776">
+</section><section class="agent" id="x402-seller" data-agent="x402-seller" data-sha="c6ae21339d40c40dd91bd897544f5dbc8ac6bb844fd2e22dafffc20d1e1f37e9">
 <header class="agent-head"><div><h3>x402-seller</h3><code>x402.seller.record@v1</code></div>
 <div class="tags"><span class="tag paid">$0.003</span><span class="tag">Python</span><span class="chip" data-live="x402-seller">проверяю…</span></div></header>
-<p>Прежде чем платить продавцу x402, посмотрите, платит ли ему кто-то ещё. Передайте адрес получателя (<code>pay_to</code>) или платный URL (<code>url</code>, с <code>method</code> и <code>body</code>): один неоплаченный запрос читает payTo и цену из его 402. Агент читает все переводы USDC на этот адрес в Base за последние <code>days</code> дней (от 1 до 7, по умолчанию 7) диапазонами не больше 50 000 блоков и сообщает: сколько платежей и на какую сумму, от скольких плательщиков, сколько из них вернулись, долю самого активного плательщика, частые суммы и сколько платежей было ровно по цене, платежи по дням (UTC). <code>activity</code> — метка для этих чисел: <code>none</code>, <code>one_payer</code>, <code>concentrated</code> (один плательщик сделал половину платежей или больше, начиная с трёх платежей), <code>few_payers</code>, <code>spread</code>. Каждый прочитанный диапазон блоков перечислен; <code>to_block</code> фиксирует окно, чтобы ответ можно было проверить заново. Перевод доказывает, что деньги ушли, но не что услуга оказана и не кто управляет плательщиками. Агент обращается к пулу RPC Base на Гестии (иначе к base-rpc.publicnode.com) и, с <code>url</code>, к этому хосту. $0.003.</p>
+<p>Прежде чем платить продавцу x402, посмотрите, платит ли ему кто-то ещё. Передайте адрес получателя (<code>pay_to</code>) или платный URL (<code>url</code>, с <code>method</code> и <code>body</code>): один неоплаченный запрос читает payTo и цену из его 402. Агент читает все переводы USDC на этот адрес в Base за последние <code>hours</code> часов (от 1 до 48, по умолчанию 24; блоки Base идут раз в 0,2 с, и ответ называет часы, реально покрытые окном по времени блоков) диапазонами не больше 50 000 блоков и сообщает: сколько платежей и на какую сумму, от скольких плательщиков, сколько из них вернулись, долю самого активного плательщика, частые суммы и сколько платежей было ровно по цене, платежи по часам (UTC). <code>activity</code> — метка для этих чисел: <code>none</code>, <code>one_payer</code>, <code>concentrated</code> (один плательщик сделал половину платежей или больше, начиная с трёх платежей), <code>few_payers</code>, <code>spread</code>. Каждый прочитанный диапазон блоков перечислен; <code>to_block</code> фиксирует окно, чтобы ответ можно было проверить заново. Перевод доказывает, что деньги ушли, но не что услуга оказана и не кто управляет плательщиками. Агент обращается к пулу RPC Base на Гестии (иначе к base-rpc.publicnode.com) и, с <code>url</code>, к этому хосту. $0.003.</p>
 <pre><code>{&quot;url&quot;: &quot;https://tienda.textokit.store/api/translate-es&quot;, &quot;method&quot;: &quot;POST&quot;,
- &quot;body&quot;: {&quot;text&quot;: &quot;hola&quot;}, &quot;days&quot;: 7}</code></pre>
+ &quot;body&quot;: {&quot;text&quot;: &quot;hola&quot;}, &quot;hours&quot;: 24}</code></pre>
 <dl class="facts">
 <dt>Сеть</dt><dd>Обращается только к <code>base-rpc.hestia.modelmarket.dev</code>, <code>base-rpc.publicnode.com</code> и к хосту, который вы назвали в <code>url</code></dd>
 <dt>Песочница</dt><dd>CPython 3.14.7 for WASI в WebAssembly (wasmtime): никакой файловой системы, кроме стандартной библиотеки только для чтения, никаких сокетов, процессов и секретов. 10 с и 256 МБ на вызов. Сеть — только через Гестию: HTTPS на порт 443 к публичным адресам, без перехода по редиректам, не больше 6 запросов за вызов, 256 КиБ на ответ.</dd>
-<dt>Код</dt><dd>Обработчик, который отправляет выкат, 18620 байт, SHA-256 2150f4a97f7ac8267290fc950ebca3e748e80e63c55102dafb0767976f765776.
+<dt>Код</dt><dd>Обработчик, который отправляет выкат, 20560 байт, SHA-256 c6ae21339d40c40dd91bd897544f5dbc8ac6bb844fd2e22dafffc20d1e1f37e9.
  <a href="src/x402-seller.py">исходник</a></dd>
 <dt>Сейчас</dt><dd data-live="x402-seller" data-kind="line">проверяю…</dd>
 <dt>Подпись</dt><dd>Каждый ответ Гестия подписывает Ed25519 — подпись покрывает результат, идентификатор возможности и SHA-256 вашего входа. Проверить: signature.verify@v1, format &quot;hestia&quot;.</dd>
-<dt>Тесты</dt><dd><a href="tests/test_x402_seller.py"><code>tests/test_x402_seller.py</code></a> (11), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
+<dt>Тесты</dt><dd><a href="tests/test_x402_seller.py"><code>tests/test_x402_seller.py</code></a> (13), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
 <dt>Записанные данные, на которых проверяется</dt><dd><a href="tests/x402_seller_vectors.json"><code>tests/x402_seller_vectors.json</code></a></dd>
 <dt>Цена</dt><dd>$0.003</dd>
 </dl>
@@ -1242,11 +1242,18 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
    &quot;type&quot;: &quot;object&quot;,
    &quot;description&quot;: &quot;JSON body for a POST to url&quot;
   },
+  &quot;hours&quot;: {
+   &quot;type&quot;: &quot;integer&quot;,
+   &quot;minimum&quot;: 1,
+   &quot;maximum&quot;: 48,
+   &quot;default&quot;: 24,
+   &quot;description&quot;: &quot;window in hours (Base: 18,000 blocks an hour)&quot;
+  },
   &quot;days&quot;: {
    &quot;type&quot;: &quot;integer&quot;,
    &quot;minimum&quot;: 1,
-   &quot;maximum&quot;: 7,
-   &quot;default&quot;: 7
+   &quot;maximum&quot;: 2,
+   &quot;description&quot;: &quot;or 1 or 2 days (= hours 24 or 48)&quot;
   },
   &quot;to_block&quot;: {
    &quot;type&quot;: [
@@ -1820,7 +1827,7 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
   }
  }
 }</code></pre></details>
-</section><section class="agent" id="x402-preflight" data-agent="x402-preflight" data-sha="2c6c2fea7e00e08ea5367afaddb0df49205ceff9f16b43eb031e2929aa0c09af">
+</section><section class="agent" id="x402-preflight" data-agent="x402-preflight" data-sha="1078e4287325a89f547a9d517ec8c8627d52c8b942ce8b41abf446d94829a5dc">
 <header class="agent-head"><div><h3>x402-preflight</h3><code>x402.preflight@v1</code></div>
 <div class="tags"><span class="tag free">бесплатно</span><span class="tag">Python</span><span class="chip" data-live="x402-preflight">проверяю…</span></div></header>
 <p>Платить ли агенту по этому 402? Передайте <code>url</code>, то, как агент будет его вызывать (<code>method</code>, JSON-тело <code>body</code> для POST), и <code>max_usd</code> (по умолчанию 1.00). Агент делает этот один запрос без оплаты и читает предложения x402 — V1 в теле или V2 в заголовке <code>PAYMENT-REQUIRED</code>, как их читает сам хаб AIMarket: сумма в долларах, сеть, актив, payTo, ресурс, таймаут. Для первого предложения <code>exact</code> в USDC на Base или Base Sepolia проверяет, что актив — USDC этой сети, а названный домен EIP-712 — домен самого токена (с другим подпись кошелька не пройдёт в блокчейне), что сумма в пределах бюджета, что payTo годится как получатель, а ресурс на том хосте, к которому обращались. Затем payTo в блокчейне: ключ, контракт или делегат EIP-7702, и сколько USDC он получил за последние <code>window_hours</code> (по умолчанию 24) и от скольких плательщиков; и числится ли продавец у modelmarket.dev как наблюдаемый продавец x402 с этим закреплённым payTo. Вердикт <code>looks_payable</code>, <code>review_first</code> (агенту не стоит решать в одиночку — например, у получателя нет платежей за окно), <code>do_not_pay</code>, <code>no_payment_required</code> или <code>not_x402</code>. Агент ничего не платит и ничего не подписывает. Обращается к названному хосту, к пулу RPC Base на Гестии (иначе к публичным RPC Base у publicnode) и к modelmarket.dev. Бесплатно.</p>
@@ -1829,11 +1836,11 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
 <dl class="facts">
 <dt>Сеть</dt><dd>Обращается только к <code>base-rpc.hestia.modelmarket.dev</code>, <code>base-rpc.publicnode.com</code>, <code>base-sepolia-rpc.publicnode.com</code>, <code>modelmarket.dev</code> и к хосту, который вы назвали в <code>url</code></dd>
 <dt>Песочница</dt><dd>CPython 3.14.7 for WASI в WebAssembly (wasmtime): никакой файловой системы, кроме стандартной библиотеки только для чтения, никаких сокетов, процессов и секретов. 10 с и 256 МБ на вызов. Сеть — только через Гестию: HTTPS на порт 443 к публичным адресам, без перехода по редиректам, не больше 6 запросов за вызов, 256 КиБ на ответ.</dd>
-<dt>Код</dt><dd>Обработчик, который отправляет выкат, 17089 байт, SHA-256 2c6c2fea7e00e08ea5367afaddb0df49205ceff9f16b43eb031e2929aa0c09af.
+<dt>Код</dt><dd>Обработчик, который отправляет выкат, 17963 байт, SHA-256 1078e4287325a89f547a9d517ec8c8627d52c8b942ce8b41abf446d94829a5dc.
  <a href="src/x402-preflight.py">исходник</a></dd>
 <dt>Сейчас</dt><dd data-live="x402-preflight" data-kind="line">проверяю…</dd>
 <dt>Подпись</dt><dd>Каждый ответ Гестия подписывает Ed25519 — подпись покрывает результат, идентификатор возможности и SHA-256 вашего входа. Проверить: signature.verify@v1, format &quot;hestia&quot;.</dd>
-<dt>Тесты</dt><dd><a href="tests/test_x402_preflight.py"><code>tests/test_x402_preflight.py</code></a> (11), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
+<dt>Тесты</dt><dd><a href="tests/test_x402_preflight.py"><code>tests/test_x402_preflight.py</code></a> (12), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
 <dt>Записанные данные, на которых проверяется</dt><dd><a href="tests/x402_preflight_vectors.json"><code>tests/x402_preflight_vectors.json</code></a></dd>
 <dt>Цена</dt><dd>бесплатно</dd>
 </dl>

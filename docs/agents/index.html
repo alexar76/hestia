@@ -217,7 +217,7 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
 <div class="proof-top"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span>handler_sha256</span></div>
 <div class="p-slug">x402-preflight<code>x402.preflight@v1</code></div>
 <div class="p-row"><span class="p-k">published here</span>
-<code class="p-v">2c6c2fea7e00e08e…aa0c09af</code></div>
+<code class="p-v">1078e4287325a89f…4829a5dc</code></div>
 <div class="p-eq" aria-hidden="true" data-live-eq="x402-preflight">?</div>
 <div class="p-row live"><span class="p-k">running on the hearth</span><code class="p-v" data-live-sha="x402-preflight">…</code></div>
 <div class="p-verdict"><span class="chip" data-live="x402-preflight">checking…</span></div>
@@ -1202,20 +1202,20 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
   }
  }
 }</code></pre></details>
-</section><section class="agent" id="x402-seller" data-agent="x402-seller" data-sha="2150f4a97f7ac8267290fc950ebca3e748e80e63c55102dafb0767976f765776">
+</section><section class="agent" id="x402-seller" data-agent="x402-seller" data-sha="c6ae21339d40c40dd91bd897544f5dbc8ac6bb844fd2e22dafffc20d1e1f37e9">
 <header class="agent-head"><div><h3>x402-seller</h3><code>x402.seller.record@v1</code></div>
 <div class="tags"><span class="tag paid">$0.003</span><span class="tag">Python</span><span class="chip" data-live="x402-seller">checking…</span></div></header>
-<p>Before paying an x402 seller, see whether anyone else does. Give the payee address (<code>pay_to</code>) or the paid URL (<code>url</code>, with <code>method</code> and <code>body</code>): one unpaid request reads payTo and the price from its 402. The agent reads every USDC Transfer to that address on Base over the last <code>days</code> (1 to 7, default 7), in ranges of at most 50,000 blocks, and reports how many payments, how much, from how many payers, how many payers came back, the busiest payer's share, the common amounts and how many were exactly the price, and payments per UTC day. <code>activity</code> labels the numbers: <code>none</code>, <code>one_payer</code>, <code>concentrated</code> (one payer made half the payments or more, from three payments up), <code>few_payers</code>, <code>spread</code>. Every block range it read is listed; <code>to_block</code> pins the window so the answer can be checked again. A transfer proves money moved, not that a service was delivered or who controls the payers. It reaches the hearth's Base RPC pool (else base-rpc.publicnode.com) and, with <code>url</code>, that host. $0.003.</p>
+<p>Before paying an x402 seller, see whether anyone else does. Give the payee address (<code>pay_to</code>) or the paid URL (<code>url</code>, with <code>method</code> and <code>body</code>): one unpaid request reads payTo and the price from its 402. The agent reads every USDC Transfer to that address on Base over the last <code>hours</code> (1 to 48, default 24; Base blocks are 0.2 s apart, and the answer gives the hours the window covered by block time), in ranges of at most 50,000 blocks, and reports how many payments, how much, from how many payers, how many payers came back, the busiest payer's share, the common amounts and how many were exactly the price, and payments per UTC hour. <code>activity</code> labels the numbers: <code>none</code>, <code>one_payer</code>, <code>concentrated</code> (one payer made half the payments or more, from three payments up), <code>few_payers</code>, <code>spread</code>. Every block range it read is listed; <code>to_block</code> pins the window so the answer can be checked again. A transfer proves money moved, not that a service was delivered or who controls the payers. It reaches the hearth's Base RPC pool (else base-rpc.publicnode.com) and, with <code>url</code>, that host. $0.003.</p>
 <pre><code>{&quot;url&quot;: &quot;https://tienda.textokit.store/api/translate-es&quot;, &quot;method&quot;: &quot;POST&quot;,
- &quot;body&quot;: {&quot;text&quot;: &quot;hola&quot;}, &quot;days&quot;: 7}</code></pre>
+ &quot;body&quot;: {&quot;text&quot;: &quot;hola&quot;}, &quot;hours&quot;: 24}</code></pre>
 <dl class="facts">
 <dt>Network</dt><dd>Reaches only <code>base-rpc.hestia.modelmarket.dev</code>, <code>base-rpc.publicnode.com</code> and the host you name in <code>url</code></dd>
 <dt>Sandbox</dt><dd>CPython 3.14.7 for WASI in WebAssembly (wasmtime): no filesystem beyond the read-only standard library, no sockets, no processes, no secrets. 10 s and 256 MB per call. Network only through the hearth: HTTPS on port 443 to public addresses, no redirects followed, at most 6 requests per call, 256 KiB per response.</dd>
-<dt>Code</dt><dd>The handler that a deploy sends, 18620 bytes, SHA-256 2150f4a97f7ac8267290fc950ebca3e748e80e63c55102dafb0767976f765776.
+<dt>Code</dt><dd>The handler that a deploy sends, 20560 bytes, SHA-256 c6ae21339d40c40dd91bd897544f5dbc8ac6bb844fd2e22dafffc20d1e1f37e9.
  <a href="src/x402-seller.py">source</a></dd>
 <dt>Now</dt><dd data-live="x402-seller" data-kind="line">checking…</dd>
 <dt>Signature</dt><dd>Every answer is signed by the hearth with Ed25519 over the result, the capability id and the SHA-256 of your input. Check it with signature.verify@v1, format &quot;hestia&quot;.</dd>
-<dt>Tests</dt><dd><a href="tests/test_x402_seller.py"><code>tests/test_x402_seller.py</code></a> (11), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
+<dt>Tests</dt><dd><a href="tests/test_x402_seller.py"><code>tests/test_x402_seller.py</code></a> (13), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
 <dt>Recorded data it replays</dt><dd><a href="tests/x402_seller_vectors.json"><code>tests/x402_seller_vectors.json</code></a></dd>
 <dt>Price</dt><dd>$0.003</dd>
 </dl>
@@ -1242,11 +1242,18 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
    &quot;type&quot;: &quot;object&quot;,
    &quot;description&quot;: &quot;JSON body for a POST to url&quot;
   },
+  &quot;hours&quot;: {
+   &quot;type&quot;: &quot;integer&quot;,
+   &quot;minimum&quot;: 1,
+   &quot;maximum&quot;: 48,
+   &quot;default&quot;: 24,
+   &quot;description&quot;: &quot;window in hours (Base: 18,000 blocks an hour)&quot;
+  },
   &quot;days&quot;: {
    &quot;type&quot;: &quot;integer&quot;,
    &quot;minimum&quot;: 1,
-   &quot;maximum&quot;: 7,
-   &quot;default&quot;: 7
+   &quot;maximum&quot;: 2,
+   &quot;description&quot;: &quot;or 1 or 2 days (= hours 24 or 48)&quot;
   },
   &quot;to_block&quot;: {
    &quot;type&quot;: [
@@ -1820,7 +1827,7 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
   }
  }
 }</code></pre></details>
-</section><section class="agent" id="x402-preflight" data-agent="x402-preflight" data-sha="2c6c2fea7e00e08ea5367afaddb0df49205ceff9f16b43eb031e2929aa0c09af">
+</section><section class="agent" id="x402-preflight" data-agent="x402-preflight" data-sha="1078e4287325a89f547a9d517ec8c8627d52c8b942ce8b41abf446d94829a5dc">
 <header class="agent-head"><div><h3>x402-preflight</h3><code>x402.preflight@v1</code></div>
 <div class="tags"><span class="tag free">free</span><span class="tag">Python</span><span class="chip" data-live="x402-preflight">checking…</span></div></header>
 <p>Should an agent pay this 402? Give <code>url</code>, how the agent would call it (<code>method</code>, a JSON <code>body</code> for POST) and <code>max_usd</code> (default 1.00). The agent makes that one request unpaid and reads the x402 offers, V1 in the body or V2 in the <code>PAYMENT-REQUIRED</code> header, as the AIMarket hub's own reader does: amount in USD, network, asset, payTo, resource, timeout. For the first <code>exact</code> USDC offer on Base or Base Sepolia it checks that the asset is that chain's USDC and that the EIP-712 domain the offer names is the token's own (with another one, a wallet's signature fails on chain), that the amount is within the budget, that payTo is a usable recipient and that the resource is on the host called. Then payTo on chain: a key, a contract or an EIP-7702 delegate, and the USDC it received in the last <code>window_hours</code> (default 24), from how many payers; and whether modelmarket.dev lists the seller as an observed x402 seller with this payTo pinned. Verdict <code>looks_payable</code>, <code>review_first</code> (something an agent should not decide alone, such as a payee with no payments in the window), <code>do_not_pay</code>, <code>no_payment_required</code> or <code>not_x402</code>. It pays nothing and signs nothing. It reaches the host you name, the hearth's Base RPC pool (else Base's public RPCs at publicnode) and modelmarket.dev. Free.</p>
@@ -1829,11 +1836,11 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
 <dl class="facts">
 <dt>Network</dt><dd>Reaches only <code>base-rpc.hestia.modelmarket.dev</code>, <code>base-rpc.publicnode.com</code>, <code>base-sepolia-rpc.publicnode.com</code>, <code>modelmarket.dev</code> and the host you name in <code>url</code></dd>
 <dt>Sandbox</dt><dd>CPython 3.14.7 for WASI in WebAssembly (wasmtime): no filesystem beyond the read-only standard library, no sockets, no processes, no secrets. 10 s and 256 MB per call. Network only through the hearth: HTTPS on port 443 to public addresses, no redirects followed, at most 6 requests per call, 256 KiB per response.</dd>
-<dt>Code</dt><dd>The handler that a deploy sends, 17089 bytes, SHA-256 2c6c2fea7e00e08ea5367afaddb0df49205ceff9f16b43eb031e2929aa0c09af.
+<dt>Code</dt><dd>The handler that a deploy sends, 17963 bytes, SHA-256 1078e4287325a89f547a9d517ec8c8627d52c8b942ce8b41abf446d94829a5dc.
  <a href="src/x402-preflight.py">source</a></dd>
 <dt>Now</dt><dd data-live="x402-preflight" data-kind="line">checking…</dd>
 <dt>Signature</dt><dd>Every answer is signed by the hearth with Ed25519 over the result, the capability id and the SHA-256 of your input. Check it with signature.verify@v1, format &quot;hestia&quot;.</dd>
-<dt>Tests</dt><dd><a href="tests/test_x402_preflight.py"><code>tests/test_x402_preflight.py</code></a> (11), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
+<dt>Tests</dt><dd><a href="tests/test_x402_preflight.py"><code>tests/test_x402_preflight.py</code></a> (12), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
 <dt>Recorded data it replays</dt><dd><a href="tests/x402_preflight_vectors.json"><code>tests/x402_preflight_vectors.json</code></a></dd>
 <dt>Price</dt><dd>free</dd>
 </dl>

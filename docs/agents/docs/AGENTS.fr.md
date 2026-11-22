@@ -42,7 +42,7 @@ foyer, rien n'est filtré.
 | [merkle-proof](#merkle-proof) | `merkle.proof@v1` | 0,002 $ | racines et preuves de Merkle : journaux RFC 6962 et arbres OpenZeppelin |
 | [x402-check](#x402-check) | `x402.authorization.check@v1` | 0,003 $ | qui a signé un paiement x402, pour quoi, et USDC l'acceptera-t-il |
 | [x402-settlement](#x402-settlement) | `x402.settlement.check@v1` | 0,000 $ | ce paiement x402 a-t-il été réglé sur Base : à qui, combien, et est-ce définitif |
-| [x402-seller](#x402-seller) | `x402.seller.record@v1` | 0,003 $ | qui paie vraiment ce bénéficiaire x402 sur Base : paiements, payeurs, payeurs revenus, par jour |
+| [x402-seller](#x402-seller) | `x402.seller.record@v1` | 0,003 $ | qui paie vraiment ce bénéficiaire x402 sur Base : paiements, payeurs, payeurs revenus, par heure |
 | [onchain-price](#onchain-price) | `crypto.price.onchain@v1` | 0,000 $ | le prix de l'ETH, du BTC ou de tout token de Base selon les pools Uniswap v3 sur Base, moyenné dans le temps, à un bloc donné |
 | [esim-prices](#esim-prices) | `esim.price.history@v1` | 0,000 $ | comment a évolué le prix de gros des forfaits eSIM d'un pays |
 | [tlog-checkpoint](#tlog-checkpoint) | `tlog.checkpoint.verify@v1` | 0,000 $ | ce checkpoint de journal de transparence est-il signé par le journal et cosigné par assez de témoins |
@@ -336,9 +336,9 @@ les confirmations. Base et Base Sepolia (`network`) ; il atteint le pool RPC Bas
 Avant de payer un vendeur x402, voyez si quelqu'un d'autre le paie. Donnez l'adresse du bénéficiaire
 (`pay_to`) ou l'URL payante (`url`, avec `method` et `body`) : une requête non payée lit payTo et le
 prix dans son 402. L'agent lit tous les transferts d'USDC vers cette adresse sur Base sur les derniers
-`days` jours (de 1 à 7, 7 par défaut), par plages d'au plus 50 000 blocs, et indique combien de
+`hours` heures (de 1 à 48, 24 par défaut ; les blocs de Base sont espacés de 0,2 s et la réponse donne les heures réellement couvertes d'après le temps des blocs), par plages d'au plus 50 000 blocs, et indique combien de
 paiements, pour quel montant, de combien de payeurs, combien sont revenus, la part du payeur le plus
-actif, les montants fréquents et combien étaient exactement au prix, et les paiements par jour (UTC).
+actif, les montants fréquents et combien étaient exactement au prix, et les paiements par heure (UTC).
 `activity` étiquette ces chiffres : `none`, `one_payer`, `concentrated` (un payeur a fait la moitié
 des paiements ou plus, à partir de trois paiements), `few_payers`, `spread`. Chaque plage de blocs lue
 est listée ; `to_block` fixe la fenêtre pour vérifier la réponse plus tard. Un transfert prouve que
@@ -347,7 +347,7 @@ le pool RPC Base du foyer (sinon base-rpc.publicnode.com) et, avec `url`, cet h�
 
 ```json
 {"url": "https://tienda.textokit.store/api/translate-es", "method": "POST",
- "body": {"text": "hola"}, "days": 7}
+ "body": {"text": "hola"}, "hours": 24}
 ```
 
 ### onchain-price

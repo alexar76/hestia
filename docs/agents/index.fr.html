@@ -217,7 +217,7 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
 <div class="proof-top"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span>handler_sha256</span></div>
 <div class="p-slug">x402-preflight<code>x402.preflight@v1</code></div>
 <div class="p-row"><span class="p-k">publié ici</span>
-<code class="p-v">2c6c2fea7e00e08e…aa0c09af</code></div>
+<code class="p-v">1078e4287325a89f…4829a5dc</code></div>
 <div class="p-eq" aria-hidden="true" data-live-eq="x402-preflight">?</div>
 <div class="p-row live"><span class="p-k">tourne sur le foyer</span><code class="p-v" data-live-sha="x402-preflight">…</code></div>
 <div class="p-verdict"><span class="chip" data-live="x402-preflight">vérification…</span></div>
@@ -1202,20 +1202,20 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
   }
  }
 }</code></pre></details>
-</section><section class="agent" id="x402-seller" data-agent="x402-seller" data-sha="2150f4a97f7ac8267290fc950ebca3e748e80e63c55102dafb0767976f765776">
+</section><section class="agent" id="x402-seller" data-agent="x402-seller" data-sha="c6ae21339d40c40dd91bd897544f5dbc8ac6bb844fd2e22dafffc20d1e1f37e9">
 <header class="agent-head"><div><h3>x402-seller</h3><code>x402.seller.record@v1</code></div>
 <div class="tags"><span class="tag paid">0,003 $</span><span class="tag">Python</span><span class="chip" data-live="x402-seller">vérification…</span></div></header>
-<p>Avant de payer un vendeur x402, voyez si quelqu'un d'autre le paie. Donnez l'adresse du bénéficiaire (<code>pay_to</code>) ou l'URL payante (<code>url</code>, avec <code>method</code> et <code>body</code>) : une requête non payée lit payTo et le prix dans son 402. L'agent lit tous les transferts d'USDC vers cette adresse sur Base sur les derniers <code>days</code> jours (de 1 à 7, 7 par défaut), par plages d'au plus 50 000 blocs, et indique combien de paiements, pour quel montant, de combien de payeurs, combien sont revenus, la part du payeur le plus actif, les montants fréquents et combien étaient exactement au prix, et les paiements par jour (UTC). <code>activity</code> étiquette ces chiffres : <code>none</code>, <code>one_payer</code>, <code>concentrated</code> (un payeur a fait la moitié des paiements ou plus, à partir de trois paiements), <code>few_payers</code>, <code>spread</code>. Chaque plage de blocs lue est listée ; <code>to_block</code> fixe la fenêtre pour vérifier la réponse plus tard. Un transfert prouve que l'argent a bougé, pas qu'un service a été rendu ni qui contrôle les payeurs. Il joint le pool RPC Base du foyer (sinon base-rpc.publicnode.com) et, avec <code>url</code>, cet hôte. 0,003 $.</p>
+<p>Avant de payer un vendeur x402, voyez si quelqu'un d'autre le paie. Donnez l'adresse du bénéficiaire (<code>pay_to</code>) ou l'URL payante (<code>url</code>, avec <code>method</code> et <code>body</code>) : une requête non payée lit payTo et le prix dans son 402. L'agent lit tous les transferts d'USDC vers cette adresse sur Base sur les derniers <code>hours</code> heures (de 1 à 48, 24 par défaut ; les blocs de Base sont espacés de 0,2 s et la réponse donne les heures réellement couvertes d'après le temps des blocs), par plages d'au plus 50 000 blocs, et indique combien de paiements, pour quel montant, de combien de payeurs, combien sont revenus, la part du payeur le plus actif, les montants fréquents et combien étaient exactement au prix, et les paiements par heure (UTC). <code>activity</code> étiquette ces chiffres : <code>none</code>, <code>one_payer</code>, <code>concentrated</code> (un payeur a fait la moitié des paiements ou plus, à partir de trois paiements), <code>few_payers</code>, <code>spread</code>. Chaque plage de blocs lue est listée ; <code>to_block</code> fixe la fenêtre pour vérifier la réponse plus tard. Un transfert prouve que l'argent a bougé, pas qu'un service a été rendu ni qui contrôle les payeurs. Il joint le pool RPC Base du foyer (sinon base-rpc.publicnode.com) et, avec <code>url</code>, cet hôte. 0,003 $.</p>
 <pre><code>{&quot;url&quot;: &quot;https://tienda.textokit.store/api/translate-es&quot;, &quot;method&quot;: &quot;POST&quot;,
- &quot;body&quot;: {&quot;text&quot;: &quot;hola&quot;}, &quot;days&quot;: 7}</code></pre>
+ &quot;body&quot;: {&quot;text&quot;: &quot;hola&quot;}, &quot;hours&quot;: 24}</code></pre>
 <dl class="facts">
 <dt>Réseau</dt><dd>N'atteint que <code>base-rpc.hestia.modelmarket.dev</code>, <code>base-rpc.publicnode.com</code> et l'hôte que vous nommez dans <code>url</code></dd>
 <dt>Bac à sable</dt><dd>CPython 3.14.7 for WASI en WebAssembly (wasmtime) : aucun système de fichiers hormis la bibliothèque standard en lecture seule, ni sockets, ni processus, ni secrets. 10 s et 256 Mo par appel. Réseau uniquement via le foyer : HTTPS sur le port 443 vers des adresses publiques, sans suivre de redirection, au plus 6 requêtes par appel, 256 Kio par réponse.</dd>
-<dt>Code</dt><dd>Le handler qu&#x27;envoie un déploiement, 18620 octets, SHA-256 2150f4a97f7ac8267290fc950ebca3e748e80e63c55102dafb0767976f765776.
+<dt>Code</dt><dd>Le handler qu&#x27;envoie un déploiement, 20560 octets, SHA-256 c6ae21339d40c40dd91bd897544f5dbc8ac6bb844fd2e22dafffc20d1e1f37e9.
  <a href="src/x402-seller.py">source</a></dd>
 <dt>Maintenant</dt><dd data-live="x402-seller" data-kind="line">vérification…</dd>
 <dt>Signature</dt><dd>Le foyer signe chaque réponse avec Ed25519 sur le résultat, l&#x27;identifiant de la capacité et le SHA-256 de votre entrée. Vérifiez-la avec signature.verify@v1, format &quot;hestia&quot;.</dd>
-<dt>Tests</dt><dd><a href="tests/test_x402_seller.py"><code>tests/test_x402_seller.py</code></a> (11), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
+<dt>Tests</dt><dd><a href="tests/test_x402_seller.py"><code>tests/test_x402_seller.py</code></a> (13), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
 <dt>Données enregistrées qu'il rejoue</dt><dd><a href="tests/x402_seller_vectors.json"><code>tests/x402_seller_vectors.json</code></a></dd>
 <dt>Prix</dt><dd>0,003 $</dd>
 </dl>
@@ -1242,11 +1242,18 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
    &quot;type&quot;: &quot;object&quot;,
    &quot;description&quot;: &quot;JSON body for a POST to url&quot;
   },
+  &quot;hours&quot;: {
+   &quot;type&quot;: &quot;integer&quot;,
+   &quot;minimum&quot;: 1,
+   &quot;maximum&quot;: 48,
+   &quot;default&quot;: 24,
+   &quot;description&quot;: &quot;window in hours (Base: 18,000 blocks an hour)&quot;
+  },
   &quot;days&quot;: {
    &quot;type&quot;: &quot;integer&quot;,
    &quot;minimum&quot;: 1,
-   &quot;maximum&quot;: 7,
-   &quot;default&quot;: 7
+   &quot;maximum&quot;: 2,
+   &quot;description&quot;: &quot;or 1 or 2 days (= hours 24 or 48)&quot;
   },
   &quot;to_block&quot;: {
    &quot;type&quot;: [
@@ -1820,7 +1827,7 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
   }
  }
 }</code></pre></details>
-</section><section class="agent" id="x402-preflight" data-agent="x402-preflight" data-sha="2c6c2fea7e00e08ea5367afaddb0df49205ceff9f16b43eb031e2929aa0c09af">
+</section><section class="agent" id="x402-preflight" data-agent="x402-preflight" data-sha="1078e4287325a89f547a9d517ec8c8627d52c8b942ce8b41abf446d94829a5dc">
 <header class="agent-head"><div><h3>x402-preflight</h3><code>x402.preflight@v1</code></div>
 <div class="tags"><span class="tag free">gratuit</span><span class="tag">Python</span><span class="chip" data-live="x402-preflight">vérification…</span></div></header>
 <p>Un agent doit-il payer ce 402 ? Envoyez <code>url</code>, la façon dont l'agent l'appellerait (<code>method</code>, un corps JSON <code>body</code> pour POST) et <code>max_usd</code> (par défaut 1.00). L'agent fait cette seule requête sans payer et lit les offres x402, V1 dans le corps ou V2 dans l'en-tête <code>PAYMENT-REQUIRED</code>, comme les lit le hub AIMarket lui-même : montant en dollars, réseau, actif, payTo, ressource, délai. Pour la première offre <code>exact</code> en USDC sur Base ou Base Sepolia, il vérifie que l'actif est l'USDC de ce réseau et que le domaine EIP-712 nommé est celui du jeton (avec un autre, la signature du portefeuille échoue sur la chaîne), que le montant tient dans le budget, que payTo est un destinataire utilisable et que la ressource est sur l'hôte appelé. Puis payTo sur la chaîne : une clé, un contrat ou un délégué EIP-7702, et combien d'USDC il a reçu dans les dernières <code>window_hours</code> (par défaut 24) et de combien de payeurs ; et si modelmarket.dev liste le vendeur comme vendeur x402 observé avec ce payTo épinglé. Verdict <code>looks_payable</code>, <code>review_first</code> (un point qu'un agent ne devrait pas trancher seul, comme un bénéficiaire sans paiement dans la fenêtre), <code>do_not_pay</code>, <code>no_payment_required</code> ou <code>not_x402</code>. Il ne paie rien et ne signe rien. Il atteint l'hôte que vous nommez, le pool RPC Base du foyer (sinon les RPC publics de Base chez publicnode) et modelmarket.dev. Gratuit.</p>
@@ -1829,11 +1836,11 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
 <dl class="facts">
 <dt>Réseau</dt><dd>N'atteint que <code>base-rpc.hestia.modelmarket.dev</code>, <code>base-rpc.publicnode.com</code>, <code>base-sepolia-rpc.publicnode.com</code>, <code>modelmarket.dev</code> et l'hôte que vous nommez dans <code>url</code></dd>
 <dt>Bac à sable</dt><dd>CPython 3.14.7 for WASI en WebAssembly (wasmtime) : aucun système de fichiers hormis la bibliothèque standard en lecture seule, ni sockets, ni processus, ni secrets. 10 s et 256 Mo par appel. Réseau uniquement via le foyer : HTTPS sur le port 443 vers des adresses publiques, sans suivre de redirection, au plus 6 requêtes par appel, 256 Kio par réponse.</dd>
-<dt>Code</dt><dd>Le handler qu&#x27;envoie un déploiement, 17089 octets, SHA-256 2c6c2fea7e00e08ea5367afaddb0df49205ceff9f16b43eb031e2929aa0c09af.
+<dt>Code</dt><dd>Le handler qu&#x27;envoie un déploiement, 17963 octets, SHA-256 1078e4287325a89f547a9d517ec8c8627d52c8b942ce8b41abf446d94829a5dc.
  <a href="src/x402-preflight.py">source</a></dd>
 <dt>Maintenant</dt><dd data-live="x402-preflight" data-kind="line">vérification…</dd>
 <dt>Signature</dt><dd>Le foyer signe chaque réponse avec Ed25519 sur le résultat, l&#x27;identifiant de la capacité et le SHA-256 de votre entrée. Vérifiez-la avec signature.verify@v1, format &quot;hestia&quot;.</dd>
-<dt>Tests</dt><dd><a href="tests/test_x402_preflight.py"><code>tests/test_x402_preflight.py</code></a> (11), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
+<dt>Tests</dt><dd><a href="tests/test_x402_preflight.py"><code>tests/test_x402_preflight.py</code></a> (12), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
 <dt>Données enregistrées qu'il rejoue</dt><dd><a href="tests/x402_preflight_vectors.json"><code>tests/x402_preflight_vectors.json</code></a></dd>
 <dt>Prix</dt><dd>gratuit</dd>
 </dl>

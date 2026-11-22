@@ -217,7 +217,7 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
 <div class="proof-top"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span>handler_sha256</span></div>
 <div class="p-slug">x402-preflight<code>x402.preflight@v1</code></div>
 <div class="p-row"><span class="p-k">此处发布</span>
-<code class="p-v">2c6c2fea7e00e08e…aa0c09af</code></div>
+<code class="p-v">1078e4287325a89f…4829a5dc</code></div>
 <div class="p-eq" aria-hidden="true" data-live-eq="x402-preflight">?</div>
 <div class="p-row live"><span class="p-k">hearth 上运行</span><code class="p-v" data-live-sha="x402-preflight">…</code></div>
 <div class="p-verdict"><span class="chip" data-live="x402-preflight">核对中…</span></div>
@@ -1202,20 +1202,20 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
   }
  }
 }</code></pre></details>
-</section><section class="agent" id="x402-seller" data-agent="x402-seller" data-sha="2150f4a97f7ac8267290fc950ebca3e748e80e63c55102dafb0767976f765776">
+</section><section class="agent" id="x402-seller" data-agent="x402-seller" data-sha="c6ae21339d40c40dd91bd897544f5dbc8ac6bb844fd2e22dafffc20d1e1f37e9">
 <header class="agent-head"><div><h3>x402-seller</h3><code>x402.seller.record@v1</code></div>
 <div class="tags"><span class="tag paid">$0.003</span><span class="tag">Python</span><span class="chip" data-live="x402-seller">核对中…</span></div></header>
-<p>在向 x402 卖家付款之前，先看看是否有别人在付款。传入收款地址（<code>pay_to</code>）或付费 URL（<code>url</code>，可带 <code>method</code> 和 <code>body</code>）：一次未付费请求从其 402 中读取 payTo 和价格。代理读取最近 <code>days</code> 天（1 到 7，默认 7）内 Base 上转入该地址的全部 USDC Transfer，每段最多 50,000 个区块，并报告：付款笔数和总额、付款方数量、回头付款方数量、最活跃付款方的占比、常见金额以及恰好等于价格的笔数、按 UTC 日期的付款。<code>activity</code> 为这些数字贴标签：<code>none</code>、<code>one_payer</code>、<code>concentrated</code>（从三笔起，一个付款方占一半或更多）、<code>few_payers</code>、<code>spread</code>。列出读取的每个区块范围；<code>to_block</code> 固定窗口，便于日后复核。转账只证明资金流动，不证明服务已交付，也不说明付款方由谁控制。访问 hearth 的 Base RPC 池（否则 base-rpc.publicnode.com），以及带 <code>url</code> 时的该主机。$0.003。</p>
+<p>在向 x402 卖家付款之前，先看看是否有别人在付款。传入收款地址（<code>pay_to</code>）或付费 URL（<code>url</code>，可带 <code>method</code> 和 <code>body</code>）：一次未付费请求从其 402 中读取 payTo 和价格。代理读取最近 <code>hours</code> 小时（1 到 48，默认 24；Base 区块间隔 0.2 秒，回答给出按区块时间实际覆盖的小时数）内 Base 上转入该地址的全部 USDC Transfer，每段最多 50,000 个区块，并报告：付款笔数和总额、付款方数量、回头付款方数量、最活跃付款方的占比、常见金额以及恰好等于价格的笔数、按 UTC 小时的付款。<code>activity</code> 为这些数字贴标签：<code>none</code>、<code>one_payer</code>、<code>concentrated</code>（从三笔起，一个付款方占一半或更多）、<code>few_payers</code>、<code>spread</code>。列出读取的每个区块范围；<code>to_block</code> 固定窗口，便于日后复核。转账只证明资金流动，不证明服务已交付，也不说明付款方由谁控制。访问 hearth 的 Base RPC 池（否则 base-rpc.publicnode.com），以及带 <code>url</code> 时的该主机。$0.003。</p>
 <pre><code>{&quot;url&quot;: &quot;https://tienda.textokit.store/api/translate-es&quot;, &quot;method&quot;: &quot;POST&quot;,
- &quot;body&quot;: {&quot;text&quot;: &quot;hola&quot;}, &quot;days&quot;: 7}</code></pre>
+ &quot;body&quot;: {&quot;text&quot;: &quot;hola&quot;}, &quot;hours&quot;: 24}</code></pre>
 <dl class="facts">
 <dt>网络</dt><dd>只访问 <code>base-rpc.hestia.modelmarket.dev</code>, <code>base-rpc.publicnode.com</code> 以及你在下列字段中指定的主机： <code>url</code></dd>
 <dt>沙箱</dt><dd>CPython 3.14.7 for WASI，运行在 WebAssembly（wasmtime）中：除只读标准库外没有文件系统，没有套接字、进程和密钥。每次调用 10 秒、256 MB。网络只能经由 hearth：仅限 443 端口的 HTTPS、仅限公网地址，不跟随重定向，每次调用最多 6 个请求，每个响应最多 256 KiB。</dd>
-<dt>代码</dt><dd>部署时发送的处理程序，18620 字节，SHA-256 2150f4a97f7ac8267290fc950ebca3e748e80e63c55102dafb0767976f765776。
+<dt>代码</dt><dd>部署时发送的处理程序，20560 字节，SHA-256 c6ae21339d40c40dd91bd897544f5dbc8ac6bb844fd2e22dafffc20d1e1f37e9。
  <a href="src/x402-seller.py">源码</a></dd>
 <dt>当前</dt><dd data-live="x402-seller" data-kind="line">核对中…</dd>
 <dt>签名</dt><dd>hearth 用 Ed25519 为每个回答签名，签名覆盖结果、能力标识和你的输入的 SHA-256。用 signature.verify@v1（format &quot;hestia&quot;）核对。</dd>
-<dt>测试</dt><dd><a href="tests/test_x402_seller.py"><code>tests/test_x402_seller.py</code></a> (11), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
+<dt>测试</dt><dd><a href="tests/test_x402_seller.py"><code>tests/test_x402_seller.py</code></a> (13), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
 <dt>它重放的录制数据</dt><dd><a href="tests/x402_seller_vectors.json"><code>tests/x402_seller_vectors.json</code></a></dd>
 <dt>价格</dt><dd>$0.003</dd>
 </dl>
@@ -1242,11 +1242,18 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
    &quot;type&quot;: &quot;object&quot;,
    &quot;description&quot;: &quot;JSON body for a POST to url&quot;
   },
+  &quot;hours&quot;: {
+   &quot;type&quot;: &quot;integer&quot;,
+   &quot;minimum&quot;: 1,
+   &quot;maximum&quot;: 48,
+   &quot;default&quot;: 24,
+   &quot;description&quot;: &quot;window in hours (Base: 18,000 blocks an hour)&quot;
+  },
   &quot;days&quot;: {
    &quot;type&quot;: &quot;integer&quot;,
    &quot;minimum&quot;: 1,
-   &quot;maximum&quot;: 7,
-   &quot;default&quot;: 7
+   &quot;maximum&quot;: 2,
+   &quot;description&quot;: &quot;or 1 or 2 days (= hours 24 or 48)&quot;
   },
   &quot;to_block&quot;: {
    &quot;type&quot;: [
@@ -1820,7 +1827,7 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
   }
  }
 }</code></pre></details>
-</section><section class="agent" id="x402-preflight" data-agent="x402-preflight" data-sha="2c6c2fea7e00e08ea5367afaddb0df49205ceff9f16b43eb031e2929aa0c09af">
+</section><section class="agent" id="x402-preflight" data-agent="x402-preflight" data-sha="1078e4287325a89f547a9d517ec8c8627d52c8b942ce8b41abf446d94829a5dc">
 <header class="agent-head"><div><h3>x402-preflight</h3><code>x402.preflight@v1</code></div>
 <div class="tags"><span class="tag free">免费</span><span class="tag">Python</span><span class="chip" data-live="x402-preflight">核对中…</span></div></header>
 <p>智能体是否应支付这个 402？发送 <code>url</code>、智能体会如何调用它（<code>method</code>，POST 时的 JSON <code>body</code>）以及 <code>max_usd</code>（默认 1.00）。智能体发出这一次不付费的请求，像 AIMarket 中心本身那样读取 x402 报价——V1 在响应体中，V2 在 <code>PAYMENT-REQUIRED</code> 头中：美元金额、网络、资产、payTo、资源、超时。对于 Base 或 Base Sepolia 上第一个 <code>exact</code> 方案的 USDC 报价，它检查资产是否为该网络的 USDC、报价中的 EIP-712 域是否为该代币自己的域（若是别的域，钱包签名会在链上失败）、金额是否在预算内、payTo 是否为可用的收款方，以及资源是否在被调用的主机上。然后查看链上的 payTo：是密钥、合约还是 EIP-7702 委托，以及它在最近 <code>window_hours</code>（默认 24）内收到多少 USDC、来自多少付款方；还查看 modelmarket.dev 是否把该卖家列为固定了此 payTo 的被观察 x402 卖家。结论为 <code>looks_payable</code>、<code>review_first</code>（智能体不应独自决定的情况，例如收款方在窗口内没有收款）、<code>do_not_pay</code>、<code>no_payment_required</code> 或 <code>not_x402</code>。它不付款，也不签名。访问你指定的主机、hearth 的 Base RPC 池（否则 publicnode 的 Base 公共 RPC）和 modelmarket.dev。免费。</p>
@@ -1829,11 +1836,11 @@ background:linear-gradient(180deg,rgba(12,8,6,0),rgba(12,8,6,.72))}
 <dl class="facts">
 <dt>网络</dt><dd>只访问 <code>base-rpc.hestia.modelmarket.dev</code>, <code>base-rpc.publicnode.com</code>, <code>base-sepolia-rpc.publicnode.com</code>, <code>modelmarket.dev</code> 以及你在下列字段中指定的主机： <code>url</code></dd>
 <dt>沙箱</dt><dd>CPython 3.14.7 for WASI，运行在 WebAssembly（wasmtime）中：除只读标准库外没有文件系统，没有套接字、进程和密钥。每次调用 10 秒、256 MB。网络只能经由 hearth：仅限 443 端口的 HTTPS、仅限公网地址，不跟随重定向，每次调用最多 6 个请求，每个响应最多 256 KiB。</dd>
-<dt>代码</dt><dd>部署时发送的处理程序，17089 字节，SHA-256 2c6c2fea7e00e08ea5367afaddb0df49205ceff9f16b43eb031e2929aa0c09af。
+<dt>代码</dt><dd>部署时发送的处理程序，17963 字节，SHA-256 1078e4287325a89f547a9d517ec8c8627d52c8b942ce8b41abf446d94829a5dc。
  <a href="src/x402-preflight.py">源码</a></dd>
 <dt>当前</dt><dd data-live="x402-preflight" data-kind="line">核对中…</dd>
 <dt>签名</dt><dd>hearth 用 Ed25519 为每个回答签名，签名覆盖结果、能力标识和你的输入的 SHA-256。用 signature.verify@v1（format &quot;hestia&quot;）核对。</dd>
-<dt>测试</dt><dd><a href="tests/test_x402_preflight.py"><code>tests/test_x402_preflight.py</code></a> (11), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
+<dt>测试</dt><dd><a href="tests/test_x402_preflight.py"><code>tests/test_x402_preflight.py</code></a> (12), <a href="tests/test_agents.py"><code>tests/test_agents.py</code></a> (25)</dd>
 <dt>它重放的录制数据</dt><dd><a href="tests/x402_preflight_vectors.json"><code>tests/x402_preflight_vectors.json</code></a></dd>
 <dt>价格</dt><dd>免费</dd>
 </dl>

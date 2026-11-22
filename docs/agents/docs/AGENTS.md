@@ -39,7 +39,7 @@ classic prompt-injection phrases are refused. Called directly on the hearth, not
 | [merkle-proof](#merkle-proof) | `merkle.proof@v1` | $0.002 | Merkle roots and proofs: RFC 6962 logs and OpenZeppelin trees |
 | [x402-check](#x402-check) | `x402.authorization.check@v1` | $0.003 | who signed an x402 payment, for what, and will USDC accept it |
 | [x402-settlement](#x402-settlement) | `x402.settlement.check@v1` | $0.000 | did this x402 payment settle on Base: to whom, how much, and is it final |
-| [x402-seller](#x402-seller) | `x402.seller.record@v1` | $0.003 | who has actually paid this x402 payee on Base: payments, payers, returning payers, per day |
+| [x402-seller](#x402-seller) | `x402.seller.record@v1` | $0.003 | who has actually paid this x402 payee on Base: payments, payers, returning payers, per hour |
 | [onchain-price](#onchain-price) | `crypto.price.onchain@v1` | $0.000 | the price of ETH, BTC or any Base token from Uniswap v3 pools on Base, time-weighted, pinned to a block |
 | [esim-prices](#esim-prices) | `esim.price.history@v1` | $0.000 | how the wholesale price of eSIM plans for a country has moved |
 | [tlog-checkpoint](#tlog-checkpoint) | `tlog.checkpoint.verify@v1` | $0.000 | is a transparency-log checkpoint signed by the log and cosigned by enough witnesses |
@@ -323,10 +323,10 @@ confirmations. Base and Base Sepolia (`network`); it reaches the hearth's Base R
 
 Before paying an x402 seller, see whether anyone else does. Give the payee address (`pay_to`) or the
 paid URL (`url`, with `method` and `body`): one unpaid request reads payTo and the price from its 402.
-The agent reads every USDC Transfer to that address on Base over the last `days` (1 to 7, default 7),
+The agent reads every USDC Transfer to that address on Base over the last `hours` (1 to 48, default 24; Base blocks are 0.2 s apart, and the answer gives the hours the window covered by block time),
 in ranges of at most 50,000 blocks, and reports how many payments, how much, from how many payers, how
 many payers came back, the busiest payer's share, the common amounts and how many were exactly the
-price, and payments per UTC day. `activity` labels the numbers: `none`, `one_payer`, `concentrated`
+price, and payments per UTC hour. `activity` labels the numbers: `none`, `one_payer`, `concentrated`
 (one payer made half the payments or more, from three payments up), `few_payers`, `spread`. Every
 block range it read is listed; `to_block` pins the window so the answer can be checked again. A
 transfer proves money moved, not that a service was delivered or who controls the payers. It reaches
@@ -334,7 +334,7 @@ the hearth's Base RPC pool (else base-rpc.publicnode.com) and, with `url`, that 
 
 ```json
 {"url": "https://tienda.textokit.store/api/translate-es", "method": "POST",
- "body": {"text": "hola"}, "days": 7}
+ "body": {"text": "hola"}, "hours": 24}
 ```
 
 ### onchain-price

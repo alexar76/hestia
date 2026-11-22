@@ -27,7 +27,7 @@
 | [merkle-proof](#merkle-proof) | `merkle.proof@v1` | $0.002 | Merkle 根与证明：RFC 6962 日志与 OpenZeppelin 树 |
 | [x402-check](#x402-check) | `x402.authorization.check@v1` | $0.003 | 谁签署了 x402 支付、用于什么、USDC 是否会接受 |
 | [x402-settlement](#x402-settlement) | `x402.settlement.check@v1` | $0.000 | 这笔 x402 付款是否已在 Base 上结算：付给谁、多少、是否最终确定 |
-| [x402-seller](#x402-seller) | `x402.seller.record@v1` | $0.003 | 谁真的在 Base 上向这个 x402 收款地址付款：付款笔数、付款方、回头付款方、按天统计 |
+| [x402-seller](#x402-seller) | `x402.seller.record@v1` | $0.003 | 谁真的在 Base 上向这个 x402 收款地址付款：付款笔数、付款方、回头付款方、按小时统计 |
 | [onchain-price](#onchain-price) | `crypto.price.onchain@v1` | $0.000 | 来自 Base 上 Uniswap v3 池的 ETH、BTC 或任意 Base 代币价格，按时间加权，固定在某个区块 |
 | [esim-prices](#esim-prices) | `esim.price.history@v1` | $0.000 | 某个国家的 eSIM 套餐批发价格如何变化 |
 | [tlog-checkpoint](#tlog-checkpoint) | `tlog.checkpoint.verify@v1` | $0.000 | 透明日志检查点是否由日志签名并获得足够见证者联署 |
@@ -226,11 +226,11 @@
 
 ### x402-seller
 
-在向 x402 卖家付款之前，先看看是否有别人在付款。传入收款地址（`pay_to`）或付费 URL（`url`，可带 `method` 和 `body`）：一次未付费请求从其 402 中读取 payTo 和价格。代理读取最近 `days` 天（1 到 7，默认 7）内 Base 上转入该地址的全部 USDC Transfer，每段最多 50,000 个区块，并报告：付款笔数和总额、付款方数量、回头付款方数量、最活跃付款方的占比、常见金额以及恰好等于价格的笔数、按 UTC 日期的付款。`activity` 为这些数字贴标签：`none`、`one_payer`、`concentrated`（从三笔起，一个付款方占一半或更多）、`few_payers`、`spread`。列出读取的每个区块范围；`to_block` 固定窗口，便于日后复核。转账只证明资金流动，不证明服务已交付，也不说明付款方由谁控制。访问 hearth 的 Base RPC 池（否则 base-rpc.publicnode.com），以及带 `url` 时的该主机。$0.003。
+在向 x402 卖家付款之前，先看看是否有别人在付款。传入收款地址（`pay_to`）或付费 URL（`url`，可带 `method` 和 `body`）：一次未付费请求从其 402 中读取 payTo 和价格。代理读取最近 `hours` 小时（1 到 48，默认 24；Base 区块间隔 0.2 秒，回答给出按区块时间实际覆盖的小时数）内 Base 上转入该地址的全部 USDC Transfer，每段最多 50,000 个区块，并报告：付款笔数和总额、付款方数量、回头付款方数量、最活跃付款方的占比、常见金额以及恰好等于价格的笔数、按 UTC 小时的付款。`activity` 为这些数字贴标签：`none`、`one_payer`、`concentrated`（从三笔起，一个付款方占一半或更多）、`few_payers`、`spread`。列出读取的每个区块范围；`to_block` 固定窗口，便于日后复核。转账只证明资金流动，不证明服务已交付，也不说明付款方由谁控制。访问 hearth 的 Base RPC 池（否则 base-rpc.publicnode.com），以及带 `url` 时的该主机。$0.003。
 
 ```json
 {"url": "https://tienda.textokit.store/api/translate-es", "method": "POST",
- "body": {"text": "hola"}, "days": 7}
+ "body": {"text": "hola"}, "hours": 24}
 ```
 
 ### onchain-price

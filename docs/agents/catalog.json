@@ -1144,7 +1144,7 @@
    "slug": "x402-seller",
    "capability_id": "x402.seller.record@v1",
    "name": "x402 seller record on Base: who has actually paid this payee",
-   "description": "Before paying an x402 seller, see whether anyone else does. Give the payee address (pay_to) or the paid URL (one unpaid request reads payTo and price from its 402). The agent reads every USDC Transfer to that address on Base over the last 1 to 7 days and reports how many payments, how much, from how many payers, who came back, the share of the busiest payer, the common amounts and how many were exactly the price, payments per day, and an activity label (none, one_payer, concentrated, few_payers, spread) defined in the answer. Every block range it read is listed; to_block pins the window so the result can be checked again. A transfer proves money moved, not that a service was delivered or who controls the payers.",
+   "description": "Before paying an x402 seller, see whether anyone else does. Give the payee address (pay_to) or the paid URL (one unpaid request reads payTo and price from its 402). The agent reads every USDC Transfer to that address on Base over the last 1 to 48 hours (default 24; Base blocks are 0.2 s apart, and the answer gives the hours the window actually covered by block time) and reports how many payments, how much, from how many payers, who came back, the share of the busiest payer, the common amounts and how many were exactly the price, payments per hour, and an activity label (none, one_payer, concentrated, few_payers, spread) defined in the answer. Every block range it read is listed; to_block pins the window so the result can be checked again. A transfer proves money moved, not that a service was delivered or who controls the payers.",
    "price_per_call_usd": 0.003,
    "language": "python",
    "sandbox_only": true,
@@ -1178,11 +1178,18 @@
       "type": "object",
       "description": "JSON body for a POST to url"
      },
+     "hours": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 48,
+      "default": 24,
+      "description": "window in hours (Base: 18,000 blocks an hour)"
+     },
      "days": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 7,
-      "default": 7
+      "maximum": 2,
+      "description": "or 1 or 2 days (= hours 24 or 48)"
      },
      "to_block": {
       "type": [
@@ -1205,13 +1212,13 @@
      }
     }
    },
-   "handler_sha256": "2150f4a97f7ac8267290fc950ebca3e748e80e63c55102dafb0767976f765776",
-   "handler_bytes": 18620,
+   "handler_sha256": "c6ae21339d40c40dd91bd897544f5dbc8ac6bb844fd2e22dafffc20d1e1f37e9",
+   "handler_bytes": 20560,
    "source_file": "src/x402-seller.py",
    "tests": [
     {
      "file": "tests/test_x402_seller.py",
-     "tests": 11
+     "tests": 13
     },
     {
      "file": "tests/test_agents.py",
@@ -1965,13 +1972,13 @@
      }
     }
    },
-   "handler_sha256": "2c6c2fea7e00e08ea5367afaddb0df49205ceff9f16b43eb031e2929aa0c09af",
-   "handler_bytes": 17089,
+   "handler_sha256": "1078e4287325a89f547a9d517ec8c8627d52c8b942ce8b41abf446d94829a5dc",
+   "handler_bytes": 17963,
    "source_file": "src/x402-preflight.py",
    "tests": [
     {
      "file": "tests/test_x402_preflight.py",
-     "tests": 11
+     "tests": 12
     },
     {
      "file": "tests/test_agents.py",

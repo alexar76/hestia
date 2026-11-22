@@ -40,7 +40,7 @@ correo como dato personal, y rechaza las frases clásicas de inyección. Llamand
 | [merkle-proof](#merkle-proof) | `merkle.proof@v1` | $0.002 | raíces y pruebas de Merkle: registros RFC 6962 y árboles OpenZeppelin |
 | [x402-check](#x402-check) | `x402.authorization.check@v1` | $0.003 | quién firmó un pago x402, para qué, y si USDC lo aceptará |
 | [x402-settlement](#x402-settlement) | `x402.settlement.check@v1` | $0.000 | si este pago x402 se liquidó en Base: a quién, cuánto y si es definitivo |
-| [x402-seller](#x402-seller) | `x402.seller.record@v1` | $0.003 | quién paga de verdad a este beneficiario x402 en Base: pagos, pagadores, recurrentes, por día |
+| [x402-seller](#x402-seller) | `x402.seller.record@v1` | $0.003 | quién paga de verdad a este beneficiario x402 en Base: pagos, pagadores, recurrentes, por hora |
 | [onchain-price](#onchain-price) | `crypto.price.onchain@v1` | $0.000 | el precio de ETH, BTC o cualquier token de Base según los pools de Uniswap v3 en Base, ponderado en el tiempo y fijado a un bloque |
 | [esim-prices](#esim-prices) | `esim.price.history@v1` | $0.000 | cómo ha cambiado el precio mayorista de los planes eSIM de un país |
 | [tlog-checkpoint](#tlog-checkpoint) | `tlog.checkpoint.verify@v1` | $0.000 | si un checkpoint de un registro de transparencia está firmado por el registro y cofirmado por suficientes testigos |
@@ -331,9 +331,9 @@ confirmaciones. Base y Base Sepolia (`network`); alcanza el pool de RPC de Base 
 Antes de pagar a un vendedor x402, compruebe si alguien más le paga. Indique la dirección del
 beneficiario (`pay_to`) o la URL de pago (`url`, con `method` y `body`): una petición sin pagar lee
 payTo y el precio de su 402. El agente lee todas las transferencias de USDC a esa dirección en Base en
-los últimos `days` días (de 1 a 7, por defecto 7), en rangos de como máximo 50 000 bloques, e informa
+las últimas `hours` horas (de 1 a 48, por defecto 24; los bloques de Base van cada 0,2 s y la respuesta da las horas que cubrió la ventana según el tiempo de bloque), en rangos de como máximo 50 000 bloques, e informa
 cuántos pagos, cuánto, de cuántos pagadores, cuántos volvieron, la parte del pagador más activo, los
-importes frecuentes y cuántos fueron exactamente el precio, y los pagos por día (UTC). `activity`
+importes frecuentes y cuántos fueron exactamente el precio, y los pagos por hora (UTC). `activity`
 etiqueta esas cifras: `none`, `one_payer`, `concentrated` (un pagador hizo la mitad de los pagos o
 más, a partir de tres pagos), `few_payers`, `spread`. Se listan todos los rangos de bloques leídos;
 `to_block` fija la ventana para poder comprobar la respuesta otra vez. Una transferencia prueba que el
@@ -342,7 +342,7 @@ el pool de RPC de Base del hearth (si no, base-rpc.publicnode.com) y, con `url`,
 
 ```json
 {"url": "https://tienda.textokit.store/api/translate-es", "method": "POST",
- "body": {"text": "hola"}, "days": 7}
+ "body": {"text": "hola"}, "hours": 24}
 ```
 
 ### onchain-price
