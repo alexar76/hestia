@@ -362,11 +362,24 @@ revés. Todas las lecturas se fijan a un bloque (`block`, o el último al empeza
 que la misma entrada y el mismo bloque dan la misma respuesta, y cualquiera puede recalcularla
 con el estado público de Base. Un error del RPC es un error, nunca un cero. No es un precio de
 todo el mercado: USDC se toma como un dólar y no hay volumen ni capitalización. Solo accede a
-`mainnet.base.org`. O indique `token`, cualquier dirección ERC-20 en Base: el getPool de la factoría
-encuentra sus pools con USDC y WETH (cuatro niveles de comisión), el precio sale del pool de USDC más
-profundo que operó en la ventana, si no del pool de WETH más profundo por el precio de ETH, y cuando
-ambas rutas lo valoran, su distancia es una comprobación; el precio de un pool delgado se mueve con
-poco, mire `liquidity`. Todos los modos leen a través del pool de RPC de Base del hearth, si no de
+`mainnet.base.org`. O indique `token`, cualquier dirección ERC-20 en Base: el agente
+comprueba que la dirección contiene un contrato, lee lo que el contrato dice de sí mismo (`name`,
+`symbol`, `decimals` y `supply_on_base` a partir de `totalSupply`; en un token puenteado, solo la
+parte puenteada), y el getPool de la factoría encuentra sus pools con USDC y WETH (cuatro niveles de
+comisión). La profundidad es el lado del token en la liquidez en rango al precio actual, contada en
+el propio token, así que los pools con USDC y con WETH son comparables; el precio sale del pool más
+profundo cuyo precio se movió en la ventana, entre los pools con al menos el 1 % de la profundidad
+del más profundo (un pool de WETH por el precio de ETH). `depth_1pct_usd` indica cuántos dólares del
+token tendría que vender un solo swap en un pool para bajar su precio un 1 % si la liquidez cerca del
+precio se mantuviera; los pools con menos del 1 % de la profundidad del elegido llevan una nota en
+lugar de pasar por precio de mercado. `price_basis` es `twap`, o `last_trade` si ningún pool profundo
+se movió en la ventana (la media del más profundo es entonces su última operación), o `spot` si el
+oráculo de ningún pool llega tan atrás, marcado porque un solo swap puede moverlo. Cuando el pool
+operado más profundo de la otra cotización es lo bastante profundo, su distancia es una comprobación.
+Las lecturas del token pasan por Multicall3, un `eth_call` por paso (unas veinte llamadas RPC por
+token, incluida la parte de ETH); cada lectura es lo que daría un `eth_call` directo en ese bloque.
+El nombre y el símbolo los dice el propio contrato: cualquiera puede desplegar un token llamado USDC,
+así que fíese de la dirección. Todos los modos leen a través del pool de RPC de Base del hearth, si no de
 `base-rpc.publicnode.com`. Gratis.
 
 ```json

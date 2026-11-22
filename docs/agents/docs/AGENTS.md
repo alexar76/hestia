@@ -352,10 +352,22 @@ it. With `pool`, any Uniswap v3 pool on Base: the agent checks that the factory 
 prices token0 in token1 and back. Every read is pinned to one block (`block`, or the latest when
 the call starts), so the same input and block give the same answer, and anyone can recompute it
 from Base's public state. An RPC error is an error, never a zero. Not a market-wide price: USDC is
-taken as one dollar, and there is no volume or market capitalisation. Or give `token`, any ERC-20 address on Base: the factory's getPool finds its pools with USDC and WETH
-(four fee tiers each), the price comes from the deepest USDC pool that traded in the window, else
-from the deepest WETH pool times the ETH price, and when both routes price it how far apart they are
-is a check; a thin pool's price is cheap to move, so read `liquidity`. Every mode reads through the hearth's Base RPC pool, else
+taken as one dollar, and there is no volume or market capitalisation. Or give `token`, any ERC-20 address on Base: the agent checks
+that the address holds a contract, reads what the contract says it is (`name`, `symbol`,
+`decimals`, and `supply_on_base` from `totalSupply`; for a bridged token only the bridged part),
+and the factory's getPool finds its pools with USDC and WETH (four fee tiers each). Depth is the
+token side of a pool's in-range liquidity at the current price, counted in the token, so USDC and
+WETH pools compare; the price comes from the deepest pool whose price moved in the window, among
+pools at least 1 % as deep as the deepest one (a WETH pool times the ETH price). `depth_1pct_usd`
+says how many dollars of the token one swap would sell into a pool to lower its price by 1 % if the
+liquidity near the price held; pools under 1 % of the chosen one's depth carry a note instead of
+passing for a market price. `price_basis` is `twap`, or `last_trade` when no deep pool moved in the
+window (the deepest pool's average is then its last trade), or `spot` when no pool's oracle reaches
+back that far, flagged because one swap can move it. When the other quote's deepest traded pool is
+deep enough, how far apart the two are is a check. The token's reads go through Multicall3, one
+`eth_call` per step (about twenty RPC calls for a token, ETH leg included); each read is what a
+direct `eth_call` at that block returns. Name and symbol are the contract's own words: anyone can
+deploy a token called USDC, so trust the address. Every mode reads through the hearth's Base RPC pool, else
 `base-rpc.publicnode.com`. Free.
 
 ```json

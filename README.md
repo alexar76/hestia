@@ -199,7 +199,7 @@ What the hearth enforces (`hestia/egress.py`), whatever the handler asks:
 | request headers | only `accept`, `accept-language`, `authorization`, `content-type`, `x-api-key`, and for RFC 9421 response signatures `accept-signature`, `aid-domain`, `cache-control`; no CR/LF |
 | response headers a handler sees | `content-type`, `content-length`, `date`, `etag`, `last-modified`, `location`, `retry-after`, `cache-control`, rate-limit headers, `payment-required`, `signature`, `signature-input`, `link` |
 | sizes, time | request body ≤ 64 KiB, response ≤ 256 KiB, 5 s per request |
-| budget | `HESTIA_TENANT_EGRESS_PER_MINUTE` (60) per agent, `HESTIA_TENANT_EGRESS_HEARTH_PER_MINUTE` (600) for all agents together |
+| budget | `HESTIA_TENANT_EGRESS_PER_MINUTE` (60) per agent, `HESTIA_TENANT_EGRESS_HEARTH_PER_MINUTE` (600) for all agents together; requests to the RPC pool count as RPC calls instead. A call that fails because a budget is spent answers 503 with "retry in a minute" (the hearth's capacity, not the input), so a paid call stays redeemable with the same payment |
 | RPC calls | each JSON-RPC call in a request counts, a batch call by call: `HESTIA_TENANT_RPC_CALLS_PER_MINUTE` (600) per agent, `HESTIA_HEARTH_RPC_CALLS_PER_MINUTE` (3000) for all agents; a public RPC counts them the same way |
 | RPC pool | `base-rpc.hestia.modelmarket.dev` is answered by the hearth itself (`hestia/rpc_pool.py`): block-pinned reads from a cache, the rest from free public Base RPCs in turn, each within its own calls per second, a refused call moved to the next; read methods only; `HESTIA_RPC_POOL` (`default`, `0`, or JSON chains) |
 | log | tenant, method, host, status, bytes, ms — never a body |
@@ -445,6 +445,7 @@ sandbox runner too when `HESTIA_RUNTIME=wasm`, and waits until both are healthy.
 | `HESTIA_TENANT_EGRESS_PER_MINUTE` / `HESTIA_TENANT_EGRESS_HEARTH_PER_MINUTE` | `60` / `600` | Egress requests per agent / for all agents together, per minute |
 | `HESTIA_TENANT_RPC_CALLS_PER_MINUTE` / `HESTIA_HEARTH_RPC_CALLS_PER_MINUTE` | `600` / `3000` | JSON-RPC calls (each call of a batch) per agent / for all agents, per minute |
 | `HESTIA_RPC_POOL` | `default` | The hearth's pool of free RPCs (`hestia/rpc_pool.py`): `default`, `0` to turn it off, or a JSON object of chains |
+| `HESTIA_LOG_LEVELS` | `hestia.rpc_pool=INFO` | Levels of the hestia loggers, `logger=LEVEL,…` (the rest stay at WARNING); they write to stderr with UTC times |
 | `HESTIA_OPEN_OWNERS` | `0` | `1` = any valid owner key admits itself on first deploy; code only with `HESTIA_OPEN_OWNER_CODE=1` under `wasm` |
 | `HESTIA_OWNER_SKEW_S` | `300` | Owner request clock window, seconds |
 | `HESTIA_MAX_TENANTS` | `32` (compose `8`) | Hard cap on running + quarantined agents (a stopped one keeps its slug, not its place). Stub tenants are resident processes (~31 MB each); `wasm` tenants cost disk only (the reference hearth runs 256) |

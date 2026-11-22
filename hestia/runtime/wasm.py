@@ -31,6 +31,7 @@ from hestia.egress import (
     MAX_RESPONSE_BYTES,
     MAX_ROUNDS,
     Egress,
+    EgressBusy,
     EgressRefused,
     EgressRequest,
     caller_hosts,
@@ -353,6 +354,10 @@ class WasmRuntime:
             if status != 200:
                 return 502, {"ok": False, "error": "sandbox runner refused the call"}
             kind = outcome.get("kind")
+            if outcome.get("egress_busy"):
+                # The hearth's capacity, not the input: 503 keeps a paid call redeemable.
+                return 503, {"ok": False, "error": str(outcome["egress_busy"])[:300],
+                             "retry_after_s": 60}
             if isinstance(kind, str) and kind in _STATUS:
                 return _STATUS[kind], {"ok": False, "error": str(outcome.get("error") or kind)[:300]}
             if kind != "ok" or not isinstance(outcome.get("result"), dict):
@@ -385,6 +390,7 @@ class WasmRuntime:
         the response the hearth already fetched answers it."""
         fetched: dict[str, Any] = {}
         total = 0
+        busy = ""
         seed = secrets.token_hex(32)
         declared = list(hosts) if hosts is not None else self.egress_hosts(slug)
         named = [h for h in caller_hosts(input_fields, body) if h not in declared]
@@ -400,6 +406,9 @@ class WasmRuntime:
             if status == 503 and fetched:
                 raise MalformedTenantResponse("sandbox continuation was refused")
             if status != 200 or outcome.get("kind") != "fetch":
+                if busy and status == 200 and outcome.get("kind") == "error":
+                    # The handler failed after the hearth refused it for its own budget.
+                    outcome = {**outcome, "egress_busy": busy}
                 return status, outcome
             raw = outcome.get("fetch")
             if not isinstance(raw, dict):
@@ -417,6 +426,8 @@ class WasmRuntime:
                 response = await self.egress.fetch(slug, request, caller_named=request.host in named)
             except EgressRefused as exc:
                 response = {"refused": str(exc)[:300]}
+                if isinstance(exc, EgressBusy):
+                    busy = str(exc)[:300]
             total += len(str(response.get("text") or ""))
             if total > 4 * MAX_RESPONSE_BYTES:
                 return 200, {"kind": "error", "error": "fetched responses exceed this call's budget"}

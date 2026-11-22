@@ -187,3 +187,50 @@ def test_logs_span_and_cache_bounds():
 def test_a_pool_upstream_must_be_https_443():
     with pytest.raises(ValueError, match="https on port 443"):
         RpcPool({NAME: {"chain_id": "0x1", "upstreams": [{"url": "http://x.example.org"}]}})
+
+
+def test_hestia_log_levels_give_the_pool_its_info_lines():
+    import io
+    import logging
+
+    from hestia.__main__ import DEFAULT_LOG_LEVELS, configure_logging
+
+    configure_logging(DEFAULT_LOG_LEVELS)
+    (handler,) = [h for h in logging.getLogger("hestia").handlers if getattr(h, "_hestia", False)]
+    stream = io.StringIO()
+    previous = handler.setStream(stream)  # the handler keeps the stderr it was made with
+    try:
+        logging.getLogger("hestia.rpc_pool").info("rpc pool line")
+        logging.getLogger("hestia.egress").info("egress line")
+        logging.getLogger("hestia.egress").warning("egress warning")
+        err = stream.getvalue()
+        assert "INFO hestia.rpc_pool: rpc pool line" in err and "egress line" not in err
+        assert "WARNING hestia.egress: egress warning" in err
+        configure_logging(DEFAULT_LOG_LEVELS)  # a second call adds no second handler
+        assert sum(getattr(h, "_hestia", False) for h in logging.getLogger("hestia").handlers) == 1
+        with pytest.raises(ValueError, match="only hestia loggers"):
+            configure_logging("uvicorn=DEBUG")
+    finally:
+        handler.setStream(previous)
+        logging.getLogger("hestia.rpc_pool").setLevel(logging.NOTSET)
+        logging.getLogger("hestia").removeHandler(handler)
+        logging.getLogger("hestia").propagate = True
+        logging.getLogger("hestia").setLevel(logging.NOTSET)
+
+
+def test_pool_requests_spend_rpc_calls_not_the_request_budget():
+    ups = Upstreams(a=ok(lambda c: "0x1"), b=ok(lambda c: "0x1"))
+
+    def handler(request):
+        if request.headers["host"] == "api.example.org":
+            return httpx.Response(200, text="plain")
+        return ups(request)
+
+    e = Egress(resolve=lambda h: [PUBLIC], transport=httpx.MockTransport(handler), rpc_pool=RpcPool(POOL),
+               per_minute=1, rpc_calls_per_minute=100)
+    for block in range(5):  # five requests, one request allowed per minute: the pool is not counted
+        call(e, dict(CALL_AT, params=[CALL_AT["params"][0], hex(200 + block)]))
+    plain = EgressRequest.parse({"url": "https://api.example.org/"}, ["api.example.org"])
+    run(e.fetch("agent", plain))
+    with pytest.raises(EgressRefused, match="egress budget"):
+        run(e.fetch("agent", plain))

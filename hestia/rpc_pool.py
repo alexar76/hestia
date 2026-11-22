@@ -272,6 +272,8 @@ class Chain:
             status = int(reply.get("status") or 0)
             if status == 429 or status >= 500 or status == 0 or reply.get("error"):
                 upstream.rest(clock())
+                logger.info("rpc pool %s: %s rested %.0f s (status %s, %d calls moved on)", self.name,
+                            upstream.host, REST_S, status, len(left))
                 continue
             try:
                 answers = json.loads(reply.get("text") or "")
@@ -298,6 +300,9 @@ class Chain:
                 out[i] = {"jsonrpc": "2.0", "id": call.get("id"), "result": result}
                 if result is not None and cacheable(call["method"], call.get("params", [])):
                     self.cache.put(self._key(call["method"], call.get("params", [])), result)
+            if still:
+                logger.info("rpc pool %s: %s refused %d of %d calls; trying the next endpoint", self.name,
+                            upstream.host, len(still), len(left))
             left = still
 
 
@@ -354,6 +359,7 @@ class RpcPool:
                 "code": -32601, "message": f"{refused[0]['method']} is not a read method this pool passes on"}})
         before_hits, before_up = self.cache.hits, chain.upstream_calls
         answers = await chain.answer(calls, send)
-        logger.info("rpc pool %s calls=%d cached=%d upstream=%d", host, len(calls),
-                    self.cache.hits - before_hits, chain.upstream_calls - before_up)
+        errors = sum(1 for a in answers if "error" in a)
+        logger.info("rpc pool %s calls=%d cached=%d upstream=%d errors=%d", host, len(calls),
+                    self.cache.hits - before_hits, chain.upstream_calls - before_up, errors)
         return _reply(200, answers[0] if single else answers)

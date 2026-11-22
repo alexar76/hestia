@@ -1226,7 +1226,7 @@
    "slug": "onchain-price",
    "capability_id": "crypto.price.onchain@v1",
    "name": "ETH, BTC or any Base token price from Uniswap v3 pools on Base (on-chain, time-weighted)",
-   "description": "The price of ETH or BTC in USDC, read from the chain itself: no exchange, data vendor or price API. The agent reads the four Uniswap v3 WETH/USDC or cbBTC/USDC pools on Base (each confirmed by the Uniswap v3 factory at the same block), takes the deepest pool whose price moved in the window, and gives its time-weighted average over window_s (the pool's own oracle, observe) beside the spot price, with every tier as a cross-check. Or give any token on Base: its pools with USDC or WETH, found through the factory, price it in USDC. Or give any Uniswap v3 pool on Base. Every read is pinned to one block, so a result can be checked again later. Not a market-wide price: USDC is taken as one dollar, and there is no volume or market capitalisation.",
+   "description": "The price of ETH or BTC in USDC, read from the chain itself: no exchange, data vendor or price API. The agent reads the four Uniswap v3 WETH/USDC or cbBTC/USDC pools on Base (each confirmed by the Uniswap v3 factory at the same block), takes the deepest pool whose price moved in the window, and gives its time-weighted average over window_s (the pool's own oracle, observe) beside the spot price, with every tier as a cross-check. Or give any token on Base: what its contract says it is (name, symbol, decimals, supply on Base) and its pools with USDC or WETH, found through the factory; the deepest pool that traded prices it in USDC, with how many dollars one swap needs to move each pool 1 %. Or give any Uniswap v3 pool on Base. Every read is pinned to one block, so a result can be checked again later. Not a market-wide price: USDC is taken as one dollar, and there is no volume or market capitalisation.",
    "price_per_call_usd": 0,
    "language": "python",
    "sandbox_only": true,
@@ -1247,7 +1247,7 @@
      },
      "token": {
       "type": "string",
-      "description": "or any ERC-20 address on Base, priced in USDC through its Uniswap v3 pools with USDC or WETH"
+      "description": "or any ERC-20 address on Base: what it is, and its USD price from its Uniswap v3 pools with USDC or WETH"
      },
      "pool": {
       "type": "string",
@@ -1269,13 +1269,13 @@
      }
     }
    },
-   "handler_sha256": "c8d16720adcd941c070b92deb6cd408b0b4982664d25381d21ae9556b8b05e28",
-   "handler_bytes": 23341,
+   "handler_sha256": "36d81a8b595e4cf6515650dfb5b3f24cc3e76290ba8b8eb0e4d9ec8834a6cf5d",
+   "handler_bytes": 29186,
    "source_file": "src/onchain-price.py",
    "tests": [
     {
      "file": "tests/test_onchain_price.py",
-     "tests": 16
+     "tests": 21
     },
     {
      "file": "tests/test_agents.py",

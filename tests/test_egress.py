@@ -309,3 +309,37 @@ def test_signature_headers_pass_both_ways() -> None:
         "Accept-Signature": 'aid-pka=("@status")', "AID-Domain": "victim.example.org", "Host": "evil"}},
         ["victim.example.org"])
     assert req.headers == {"accept-signature": 'aid-pka=("@status")', "aid-domain": "victim.example.org"}
+
+
+# ------------------------------------------------------------------ the hearth's own budget is "busy", not "bad"
+
+
+def test_a_spent_budget_is_busy_and_says_retry():
+    from hestia.egress import EgressBusy
+
+    egress = _egress(lambda h: [PUBLIC], lambda r: httpx.Response(200), per_minute=1)
+    req = EgressRequest.parse({"url": "https://api.example.org/"}, HOSTS)
+    run(egress.fetch("t", req))
+    with pytest.raises(EgressBusy, match="retry in a minute"):
+        run(egress.fetch("t", req))
+    with pytest.raises(EgressRefused) as refused:  # a host outside the list is not busy
+        EgressRequest.parse({"url": "https://other.example.org/"}, HOSTS)
+    assert not isinstance(refused.value, EgressBusy)
+
+
+class BusyEgress(Egress):
+    def __init__(self):
+        super().__init__(per_minute=1, resolve=lambda h: [PUBLIC],
+                         transport=httpx.MockTransport(lambda r: httpx.Response(200, text="gas=0.005")))
+
+
+def test_a_call_that_hits_the_hearths_budget_answers_503_not_400(tmp_path, scripted_runner):
+    socket_path, _ = scripted_runner
+    c = wasm_client(tmp_path, socket_path, tenant_egress=True)
+    c.app.state.stub.egress = BusyEgress()
+    assert _deploy(c, egress_hosts=HOSTS).status_code == 200
+    body = {"mode": "fetch", "url": "https://api.example.org/gas"}
+    assert c.post("/t/demo-echo/invoke", json=body).status_code == 200
+    again = c.post("/t/demo-echo/invoke", json=body)
+    assert again.status_code == 503, again.text
+    assert "egress budget" in again.text and "retry" in again.text

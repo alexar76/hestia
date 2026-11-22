@@ -84,6 +84,12 @@ class EgressRefused(ValueError):
     """A request the hearth will not make. The message goes back to the handler."""
 
 
+class EgressBusy(EgressRefused):
+    """Refused for the hearth's own capacity (a budget is spent), not for what the agent asked: the
+    call did nothing wrong and may succeed in a minute. A call that fails on it answers 503, so a
+    paid call stays redeemable instead of being delivered as an error."""
+
+
 def normalize_host(raw: str) -> str:
     """One deploy-time host: an exact public DNS name, lower-case, no port, no IP literal."""
     host = (raw or "").strip().lower().rstrip(".")
@@ -306,21 +312,25 @@ class Egress:
     async def fetch(self, slug: str, request: EgressRequest, *,
                     caller_named: bool = False) -> dict[str, Any]:
         """The response a handler sees: {status, headers, text} or {error}."""
-        if not self.limit.take(slug):
-            raise EgressRefused(f"this agent's egress budget ({self.limit.per_minute}/min) is spent")
+        pooled = self.rpc_pool is not None and request.host in self.rpc_pool.hosts
+        # A request to the RPC pool is answered by the hearth (a cache, then free endpoints each
+        # within its own calls per second): its calls are counted below, not as requests.
+        if not pooled and not self.limit.take(slug):
+            raise EgressBusy(f"this agent's egress budget ({self.limit.per_minute}/min) is spent; "
+                             "retry in a minute")
         if caller_named and not self.target_limit.take(request.host):
-            raise EgressRefused(f"{request.host} has had its share of this hearth "
-                                f"({self.target_limit.per_minute}/min); retry in a minute")
-        if not self.hearth_limit.take("*"):
-            raise EgressRefused("this hearth's egress budget is spent; retry in a minute")
+            raise EgressBusy(f"{request.host} has had its share of this hearth "
+                             f"({self.target_limit.per_minute}/min); retry in a minute")
+        if not pooled and not self.hearth_limit.take("*"):
+            raise EgressBusy("this hearth's egress budget is spent; retry in a minute")
         calls = _rpc_calls(request.body) if request.method == "POST" else 0
         if calls:
             if not self.rpc_limit.take(slug, n=calls):
-                raise EgressRefused(f"this agent's RPC budget ({self.rpc_limit.per_minute} calls/min) "
-                                    "is spent")
+                raise EgressBusy(f"this agent's RPC budget ({self.rpc_limit.per_minute} calls/min) "
+                                 "is spent; retry in a minute")
             if not self.hearth_rpc_limit.take("*", n=calls):
-                raise EgressRefused("this hearth's RPC budget is spent; retry in a minute")
-        if self.rpc_pool is not None and request.host in self.rpc_pool.hosts:
+                raise EgressBusy("this hearth's RPC budget is spent; retry in a minute")
+        if pooled:
             async def upstream(host: str, url: str, body: str) -> dict[str, Any]:
                 return await self._send(slug, EgressRequest(
                     method="POST", url=url, host=host,
