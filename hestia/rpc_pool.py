@@ -16,7 +16,9 @@ an agent declares like any egress host. A request to that name never leaves for 
   ``eth_getLogs`` only to the ones that serve that many blocks in one call;
 - moves a call that an endpoint refused (rate limit, range too large, any error that is not the
   contract's own revert) to the next endpoint, and rests an endpoint that answered 429, 5xx or not at
-  all for ``REST_S`` seconds.
+  all for ``REST_S`` seconds;
+- gives an endpoint at most its ``max_batch`` calls at once (two of the free ones refuse a batch of ten),
+  sending a big batch first to one that takes it whole.
 
 Only read methods are passed on (no transaction is ever sent from the hearth's address). Every
 upstream request goes out through the egress's own client: HTTPS to a checked public address, no
@@ -57,9 +59,13 @@ DEFAULT_POOLS: dict[str, dict[str, Any]] = {
         "chain_id": "0x2105",
         "upstreams": [
             {"url": "https://base-rpc.publicnode.com", "per_second": 15, "logs_range": 50_000},
-            {"url": "https://mainnet.base.org", "per_second": 20, "logs_range": 0},
-            {"url": "https://base.meowrpc.com", "per_second": 10, "logs_range": 10_000},
-            {"url": "https://base.gateway.tenderly.co", "per_second": 10, "logs_range": 1_000},
+            # 25 calls/s by its own account, but on 2026-11-22 it refused 7–9 of every 16-call batch from the
+            # hearth and answered 429 under load: 6/s (12 in a burst) keeps it for small requests and sends
+            # big batches elsewhere.
+            {"url": "https://mainnet.base.org", "per_second": 6, "logs_range": 0},
+            # max_batch: a batch of 10 got 400 from meowrpc and 429 from tenderly (2026-11-22); 4 passed.
+            {"url": "https://base.meowrpc.com", "per_second": 10, "logs_range": 10_000, "max_batch": 4},
+            {"url": "https://base.gateway.tenderly.co", "per_second": 10, "logs_range": 1_000, "max_batch": 4},
             {"url": "https://base-mainnet.public.blastapi.io", "per_second": 10, "logs_range": 10_000},
         ],
     },
@@ -155,6 +161,7 @@ class Upstream:
     url: str
     per_second: float
     logs_range: int = 0
+    max_batch: int = 100
     tokens: float = 0.0
     stamp: float = 0.0
     resting_until: float = 0.0
@@ -250,42 +257,55 @@ class Chain:
 
     async def _send_group(self, calls, idx, span, out, send, clock) -> None:
         left = list(idx)
-        tried: set[str] = set()
+        tried: dict[int, set[str]] = {i: set() for i in left}  # endpoints each call has been sent to
         deadline = clock() + WAIT_S
         while left:
             now = clock()
-            order = [u for u in self._order(span, now) if u.url not in tried]
+            order = [u for u in self._order(span, now) if any(u.url not in tried[i] for i in left)]
             if not order:
                 return
-            upstream = next((u for u in order if u.take(len(left), now)), None)
-            if upstream is None:
-                if clock() >= deadline:
-                    upstream = order[0]  # out of patience: the endpoint will say if it minds
-                else:
+            # Endpoints that take the whole group in one batch first; the others get pieces of it.
+            order.sort(key=lambda u: u.max_batch < len(left))
+            chosen = None
+            for u in order:
+                piece = [i for i in left if u.url not in tried[i]][:u.max_batch]
+                if u.take(len(piece), now):
+                    chosen = (u, piece)
+                    break
+            if chosen is None:
+                if clock() < deadline:
                     await asyncio.sleep(0.2)
                     continue
-            tried.add(upstream.url)
+                u = order[0]  # out of patience: the endpoint will say if it minds
+                chosen = (u, [i for i in left if u.url not in tried[i]][:u.max_batch])
+            upstream, piece = chosen
+            for i in piece:
+                tried[i].add(upstream.url)
             body = [{"jsonrpc": "2.0", "id": n, "method": calls[i]["method"],
-                     "params": calls[i].get("params", [])} for n, i in enumerate(left)]
-            self.upstream_calls += len(left)
+                     "params": calls[i].get("params", [])} for n, i in enumerate(piece)]
+            self.upstream_calls += len(piece)
             reply = await send(upstream.host, upstream.url, json.dumps(body, separators=(",", ":")))
             status = int(reply.get("status") or 0)
             if status == 429 or status >= 500 or status == 0 or reply.get("error"):
                 upstream.rest(clock())
                 logger.info("rpc pool %s: %s rested %.0f s (status %s, %d calls moved on)", self.name,
-                            upstream.host, REST_S, status, len(left))
+                            upstream.host, REST_S, status, len(piece))
                 continue
             try:
                 answers = json.loads(reply.get("text") or "")
             except ValueError:
-                upstream.rest(clock())
+                answers = None
+            if not isinstance(answers, list):
+                # A refusal of this request, not of the endpoint: base-rpc.publicnode.com answers a receipt it
+                # does not know yet (a transaction not mined) with 403 "archive requests require a personal
+                # token", where others say null. Move the calls on; resting it would take away the one
+                # endpoint that serves 50,000-block eth_getLogs.
+                logger.info("rpc pool %s: %s refused the batch (status %s); trying the next endpoint",
+                            self.name, upstream.host, status)
                 continue
-            if isinstance(answers, dict):  # an endpoint that answers a batch with one error
-                upstream.rest(clock())
-                continue
-            by_id = {a.get("id"): a for a in answers if isinstance(a, dict)} if isinstance(answers, list) else {}
+            by_id = {a.get("id"): a for a in answers if isinstance(a, dict)}
             still = []
-            for n, i in enumerate(left):
+            for n, i in enumerate(piece):
                 a = by_id.get(n)
                 call = calls[i]
                 if a is None or ("error" in a and _retryable(a["error"])):
@@ -302,8 +322,9 @@ class Chain:
                     self.cache.put(self._key(call["method"], call.get("params", [])), result)
             if still:
                 logger.info("rpc pool %s: %s refused %d of %d calls; trying the next endpoint", self.name,
-                            upstream.host, len(still), len(left))
-            left = still
+                            upstream.host, len(still), len(piece))
+            done = set(piece) - set(still)
+            left = [i for i in left if i not in done]
 
 
 class RpcPool:
@@ -314,7 +335,8 @@ class RpcPool:
         self.chains: dict[str, Chain] = {}
         for name, spec in (DEFAULT_POOLS if pools is None else pools).items():
             ups = [Upstream(url=str(u["url"]), per_second=float(u.get("per_second", 10)),
-                            logs_range=int(u.get("logs_range", 0))) for u in spec["upstreams"]]
+                            logs_range=int(u.get("logs_range", 0)), max_batch=max(1, int(u.get("max_batch", 100))))
+                   for u in spec["upstreams"]]
             for u in ups:
                 parts = urlsplit(u.url)
                 if parts.scheme != "https" or parts.port not in (None, 443) or not parts.hostname:

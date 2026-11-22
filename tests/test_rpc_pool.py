@@ -234,3 +234,54 @@ def test_pool_requests_spend_rpc_calls_not_the_request_budget():
     run(e.fetch("agent", plain))
     with pytest.raises(EgressRefused, match="egress budget"):
         run(e.fetch("agent", plain))
+
+
+def test_a_batch_larger_than_an_endpoints_burst_goes_to_another():
+    from hestia.rpc_pool import DEFAULT_POOLS
+
+    base = next(u for u in DEFAULT_POOLS[NAME]["upstreams"] if u["url"] == "https://mainnet.base.org")
+    assert base["per_second"] * 2 < 16  # a 16-call batch never fits its burst
+    pool = RpcPool({NAME: {"chain_id": "0x2105", "upstreams": [
+        {"url": "https://a.example.org", "per_second": 6}, {"url": "https://b.example.org", "per_second": 15}]}})
+    chain = pool.chains[NAME]
+    a, b = chain.upstreams
+    assert not a.take(16, now=1.0) and b.take(16, now=1.0)
+
+
+def test_a_refused_receipt_moves_on_without_resting_the_endpoint():
+    # publicnode answers a receipt it does not know yet with 403; another endpoint says null (not mined).
+    ups = Upstreams(a=lambda b: httpx.Response(403, json={"jsonrpc": "2.0", "id": None, "error": {
+        "code": -32602, "message": "Archive requests require a personal token"}}), b=ok(lambda c: None))
+    e = egress(ups)
+    pool = e.rpc_pool.chains[NAME]
+    pool._order = lambda span, now: [u for u in pool.upstreams]  # a first, then b
+    receipt = {"jsonrpc": "2.0", "id": 4, "method": "eth_getTransactionReceipt", "params": ["0x" + "12" * 32]}
+    _, out = call(e, receipt)
+    assert out == {"jsonrpc": "2.0", "id": 4, "result": None}
+    assert pool.upstreams[0].resting_until == 0.0  # not rested: it still serves everything else
+    assert [h for h, _ in ups.seen] == ["a.example.org", "b.example.org"]
+
+
+def test_an_endpoint_gets_no_more_than_its_max_batch():
+    sizes = []
+
+    def small(batch):
+        sizes.append(("a", len(batch)))
+        if len(batch) > 4:
+            return httpx.Response(400, text="Bad Request")
+        return httpx.Response(200, json=[{"jsonrpc": "2.0", "id": c["id"], "result": "0x1"} for c in batch])
+
+    def big(batch):
+        sizes.append(("b", len(batch)))
+        return httpx.Response(429)
+
+    pool = {NAME: {"chain_id": "0x2105", "upstreams": [
+        {"url": "https://a.example.org", "per_second": 100, "max_batch": 4},
+        {"url": "https://b.example.org", "per_second": 100}]}}
+    e = Egress(resolve=lambda h: [PUBLIC], transport=httpx.MockTransport(Upstreams(a=small, b=big)),
+               rpc_pool=RpcPool(pool))
+    batch = [dict(CALL_AT, id=i, params=[CALL_AT["params"][0], "latest"]) for i in range(10)]
+    _, out = call(e, batch)
+    assert [o["result"] for o in out] == ["0x1"] * 10
+    assert sizes[0] == ("b", 10)                       # the whole batch to the one that takes it whole
+    assert [n for h, n in sizes if h == "a"] == [4, 4, 2]  # then pieces the small one accepts
