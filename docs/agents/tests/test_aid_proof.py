@@ -20,7 +20,6 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-
 from hestia_agents.manifests import handler_source
 
 LIVE = json.loads((Path(__file__).parent / "aid_proof_vectors.json").read_text(encoding="utf-8"))

@@ -18,9 +18,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from record_fetches import Reply, request_key  # noqa: E402
-
 from hestia_agents.manifests import handler_source  # noqa: E402
+from record_fetches import Reply, request_key  # noqa: E402
 
 MAX_ROUNDS = 6
 

@@ -13,7 +13,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from hestia_agents.manifests import handler_source
 
 BIP350 = json.loads((Path(__file__).parent / "bip350_vectors.json").read_text(encoding="utf-8"))

@@ -14,7 +14,6 @@ import subprocess
 import sys
 
 import pytest
-
 from hestia_agents.manifests import AGENTS, handler_source
 
 RECORD = ("v=aid2;u=https://modelmarket.dev/mcp;p=mcp;a=none;s=AIMarket hub: search and call agent tools;"

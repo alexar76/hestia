@@ -22,7 +22,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-
 from hestia_agents.manifests import AGENTS, deploy_body, handler_source
 
 V = json.loads((Path(__file__).parent / "onchain_price_vectors.json").read_text(encoding="utf-8"))

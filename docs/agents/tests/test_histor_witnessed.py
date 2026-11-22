@@ -15,7 +15,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from hestia_agents.manifests import AGENTS, deploy_body, handler_source
 
 V = json.loads(

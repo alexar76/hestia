@@ -19,7 +19,6 @@ import time
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-
 from hestia_agents.manifests import AGENTS, deploy_body, handler_source
 
 KEY = Ed25519PrivateKey.from_private_bytes(hashlib.sha256(b"aid-discover test key").digest())

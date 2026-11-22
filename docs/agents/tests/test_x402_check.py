@@ -15,7 +15,6 @@ import time
 from pathlib import Path
 
 import pytest
-
 from hestia_agents.manifests import handler_source
 
 VECTORS = json.loads((Path(__file__).parent / "x402_vectors.json").read_text(encoding="utf-8"))

@@ -197,6 +197,7 @@ def hestia_or_skip():
     """(TestClient, build_app, Settings) from the sibling hearth, or a skip."""
     try:
         from fastapi.testclient import TestClient
+
         from hestia.app import build_app
         from hestia.config import Settings
     except ImportError:  # pragma: no cover - standalone checkout

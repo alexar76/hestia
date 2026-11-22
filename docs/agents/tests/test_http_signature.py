@@ -22,7 +22,6 @@ import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
-
 from hestia_agents.manifests import deploy_body, handler_source
 
 V = json.loads((Path(__file__).parent / "http_signature_vectors.json").read_text(encoding="utf-8"))

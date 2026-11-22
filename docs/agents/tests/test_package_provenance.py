@@ -21,9 +21,8 @@ import json
 from pathlib import Path
 
 import pytest
-from replay import load, text_of, with_json
-
 from hestia_agents.manifests import AGENTS, deploy_body
+from replay import load, text_of, with_json
 
 V = json.loads(
     (Path(__file__).parent / "package_provenance_vectors.json").read_text(encoding="utf-8")

@@ -16,3 +16,5 @@ tests
 docs/**
 !docs/landing/
 !docs/landing/**
+!docs/agents/
+!docs/agents/**

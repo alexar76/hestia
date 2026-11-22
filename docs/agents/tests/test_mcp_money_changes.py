@@ -15,9 +15,8 @@ import json
 from pathlib import Path
 
 import pytest
-from replay import load
-
 from hestia_agents.manifests import deploy_body
+from replay import load
 
 V = json.loads(
     (Path(__file__).parent / "mcp_money_changes_vectors.json").read_text(encoding="utf-8")

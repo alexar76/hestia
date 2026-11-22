@@ -9,7 +9,6 @@ characters (Trojan Source).
 from __future__ import annotations
 
 import pytest
-
 from hestia_agents.manifests import handler_source
 
 PROTECTED = ["modelmarket", "paypal", "apple"]

@@ -16,9 +16,8 @@ import json
 from pathlib import Path
 
 import pytest
-from replay import load
-
 from hestia_agents.manifests import AGENTS, deploy_body
+from replay import load
 
 HERE = Path(__file__).parent
 F = json.loads((HERE / "agent_card_fixtures.json").read_text(encoding="utf-8"))

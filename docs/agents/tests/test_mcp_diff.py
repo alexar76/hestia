@@ -12,7 +12,6 @@ import random
 import time
 
 import pytest
-
 from hestia_agents.manifests import handler_source
 
 

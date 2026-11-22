@@ -6,7 +6,6 @@ import random
 from decimal import ROUND_HALF_UP, Decimal
 
 import pytest
-
 from hestia_agents.manifests import handler_source
 
 

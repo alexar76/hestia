@@ -14,7 +14,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from hestia_agents.manifests import deploy_body, handler_source
 
 V = json.loads((Path(__file__).parent / "tlog_checkpoint_vectors.json").read_text(encoding="utf-8"))

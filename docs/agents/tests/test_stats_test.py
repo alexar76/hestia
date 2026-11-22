@@ -13,7 +13,6 @@ import random
 import statistics
 
 import pytest
-
 from hestia_agents.manifests import handler_source
 
 N = statistics.NormalDist()

@@ -22,7 +22,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from hestia_agents.manifests import AGENTS, AGENTS_DIR, deploy_body, handler_source
 
 HERE = Path(__file__).resolve().parent

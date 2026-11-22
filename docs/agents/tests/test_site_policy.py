@@ -14,9 +14,8 @@ import json
 from pathlib import Path
 
 import pytest
-from replay import load
-
 from hestia_agents.manifests import AGENTS, deploy_body
+from replay import load
 
 V = json.loads((Path(__file__).parent / "site_policy_vectors.json").read_text(encoding="utf-8"))
 SLUG = "site-policy"
