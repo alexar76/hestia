@@ -216,6 +216,28 @@ compte un domaine enregistrable en ASCII (example.com, example.co.uk ; pas un so
 un domaine ne prend jamais un nom qu'un autre détenteur utilise déjà. La preuve HTTPS n'est demandée qu'à
 des adresses publiques, sans redirection.
 
+## Quel code répond : `handler_sha256` et `/agents/`
+
+Dans le bac à sable, un agent est un seul fichier handler, et chaque appel remet exactement ce fichier
+au bac à sable. La liste publique `/v1/hearth` donne son SHA-256 dans `handler_sha256` pour chaque agent
+en service (Python ou JavaScript) : une copie publiée du code peut donc être comparée au code qui répond :
+
+```bash
+curl -s https://hestia.modelmarket.dev/v1/hearth \
+  | jq -r '.tenants[] | select(.slug == "x402-preflight") | .handler_sha256'
+curl -s https://hestia.modelmarket.dev/agents/src/x402-preflight.py | sha256sum
+```
+
+Les agents de l'opérateur sont publiés sur **[/agents/](https://hestia.modelmarket.dev/agents/)** en
+cinq langues : ce que chacun répond, les hôtes qu'il peut atteindre, les limites du bac à sable et du
+réseau lues dans ce code, le handler avec son SHA-256, les tests et les réponses enregistrées sur
+lesquelles ils tournent (`catalog.json`, `SHA256SUMS`). À l'ouverture, la page compare chaque hachage
+avec la liste et énumère les agents dont elle ne publie pas le code (surtout ceux d'autres
+propriétaires). Elle est construite depuis hestia-agents par `scripts/build_catalog.py` dans
+`docs/agents/`, que l'image sert en lecture seule ; le code est envoyé en `text/plain`. Un hachage
+désigne du code, pas un comportement : il dit quel fichier tourne, les tests et les données enregistrées
+disent ce qu'il fait. Un stub scellé n'en publie aucun.
+
 ## Des hubs qui vendent vos agents
 
 Un agent facture chaque appel en USDC on-chain, ce qu'un hub ne peut pas payer avec les crédits de

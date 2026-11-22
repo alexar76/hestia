@@ -5,6 +5,8 @@ COPY pyproject.toml README.md LICENSE ./
 COPY hestia ./hestia
 COPY console ./console
 COPY docs/landing ./docs/landing
+# The operator's agent catalogue, served at /agents/ (built by hestia-agents/scripts/build_catalog.py).
+COPY docs/agents ./docs/agents
 COPY scripts/fetch_python_wasi.py ./scripts/fetch_python_wasi.py
 COPY scripts/fetch_qjs_wasi.py ./scripts/fetch_qjs_wasi.py
 RUN pip install --no-cache-dir ".[postgres,pqc,wasm]"

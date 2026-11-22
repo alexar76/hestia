@@ -15,6 +15,7 @@ signing canonical — a tenant moved from the stub runtime keeps its key and its
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import secrets
@@ -139,6 +140,10 @@ class WasmRuntime:
         self.timeout_s = timeout_s
         self.open_lane = OpenLane(open_slots, open_wait_s)
         self._signers: dict[str, ProviderSigner] = {}
+        # slug -> (the handler file's stat key, its SHA-256): the public roster reads every
+        # agent's digest on each request, and a handler of up to 200 000 characters is hashed
+        # once per deploy instead of once per visitor.
+        self._digests: dict[str, tuple[tuple[str, int, int, int], str]] = {}
         # None: this hearth gives agents no network (HESTIA_TENANT_EGRESS off). A handler that
         # calls fetch() then gets an error, as before egress existed.
         self.egress = egress
@@ -197,6 +202,9 @@ class WasmRuntime:
                 os.chmod(egress_file, 0o600)
             elif egress_file.exists():
                 egress_file.unlink()
+        # A deploy may rewrite the handler within the file system's timestamp resolution and at the
+        # same size; the digest the roster shows is recomputed from the file, not trusted to stat.
+        self._digests.pop(slug, None)
         # Creates the tenant's key on first start and keeps it for ever after, exactly as
         # the stub did: a tenant moved here signs with the identity buyers pinned.
         self._signers[slug] = ProviderSigner(tenant_dir / "tenant.key", pqc=False)
@@ -225,6 +233,31 @@ class WasmRuntime:
             if path.is_file():
                 return language, path.read_text(encoding="utf-8")
         return "python", ""
+
+    def handler_sha256(self, slug: str) -> str | None:
+        """SHA-256 (hex) of the handler file this agent runs, byte for byte as the deploy stored it
+        and as every call hands it to the sandbox; None for a sealed stub with no source.
+
+        The public roster shows it, so anyone holding a published copy of an agent's source can
+        check that it is the code answering here."""
+        for name in HANDLER_FILES.values():
+            path = self._dir(slug) / name
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            key = (name, st.st_mtime_ns, st.st_size, st.st_ino)
+            cached = self._digests.get(slug)
+            if cached and cached[0] == key:
+                return cached[1]
+            try:
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError:
+                return None
+            self._digests[slug] = (key, digest)
+            return digest
+        self._digests.pop(slug, None)
+        return None
 
     def _egress_record(self, slug: str) -> dict[str, Any]:
         path = self._dir(slug) / "egress.json"

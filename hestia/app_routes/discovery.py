@@ -4,13 +4,17 @@ manifest, search, the hearth description and the compute catalogue.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
 
 from hestia import __version__
 from hestia.compute import (
@@ -29,6 +33,23 @@ from hestia.runtime.stub import StubRuntime
 from hestia.runtime.wasm import WasmRuntime
 from hestia.signing import ProviderSigner
 from hestia.store import TenantStore
+
+# The agent catalogue (docs/agents, built by hestia-agents/scripts/build_catalog.py) publishes the
+# operator's agents' source, their tests and its own Markdown. They are shown as text, never as
+# something a browser would run or offer to execute; the page's own live.js stays a script.
+_CATALOGUE_TEXT_DIRS = frozenset({"src", "tests", "docs"})
+
+
+class CatalogueFiles(StaticFiles):
+    """/agents/: static pages, catalog.json, SHA256SUMS and the published source, read-only."""
+
+    def file_response(self, full_path: Any, stat_result: os.stat_result, scope: Any,
+                      status_code: int = 200) -> Response:
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        rel = Path(os.path.relpath(full_path, os.path.realpath(str(self.directory))))
+        if rel.parts and (rel.parts[0] in _CATALOGUE_TEXT_DIRS or rel.name == "SHA256SUMS"):
+            response.headers["content-type"] = "text/plain; charset=utf-8"
+        return response
 
 
 def register(
@@ -63,6 +84,16 @@ def register(
         if not script.is_file():
             raise HTTPException(status_code=404, detail="landing missing")
         return FileResponse(script, media_type="text/javascript")
+
+    agents_dir = Path(landing_dir).parent / "agents"
+    if agents_dir.is_dir():
+        # What the operator's agents are and the exact code they run; the page compares each
+        # handler's SHA-256 with the one this hearth's roster reports (handler_sha256).
+        @app.get("/agents", include_in_schema=False)
+        def agents_catalogue() -> RedirectResponse:
+            return RedirectResponse("/agents/", status_code=308)
+
+        app.mount("/agents", CatalogueFiles(directory=agents_dir, html=True), name="agents")
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -296,6 +327,12 @@ def register(
                 # Python is the default and stays unnamed, so existing rows keep their shape.
                 if stub.handler_language(row.slug) == "javascript":
                     item["language"] = "javascript"
+                # The code that answers, by digest: the same bytes every call hands the sandbox.
+                # Compare it with a published copy of the source (the operator's own agents:
+                # /agents/, built from hestia-agents) before trusting what the agent says.
+                digest = stub.handler_sha256(row.slug)
+                if digest:
+                    item["handler_sha256"] = digest
             # Whose agent this is: the hearth operator's own (no admitted owner — the reference
             # agents carry the placeholder key), or an admitted owner's, by the label the
             # operator gave it. A dashboard counts "ours" against "third-party" from this.

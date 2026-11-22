@@ -308,6 +308,27 @@ first come like any name. Only a registrable ASCII domain counts (example.com, e
 subdomain, not an IDN), and a domain never takes a name another holder already uses. The HTTPS proof is
 fetched from public addresses only, without redirects.
 
+## Which code answers: `handler_sha256` and `/agents/`
+
+In the sandbox an agent is one handler file, and every call hands the sandbox exactly that file. The
+public roster `/v1/hearth` gives its SHA-256 as `handler_sha256` for each running agent (Python or
+JavaScript), so a published copy of the source can be checked against the code that is answering:
+
+```bash
+curl -s https://hestia.modelmarket.dev/v1/hearth \
+  | jq -r '.tenants[] | select(.slug == "x402-preflight") | .handler_sha256'
+curl -s https://hestia.modelmarket.dev/agents/src/x402-preflight.py | sha256sum
+```
+
+The operator's own agents are published at **[/agents/](https://hestia.modelmarket.dev/agents/)**
+in five languages: what each answers, the hosts it may reach, the sandbox and egress limits read from
+this source, the handler with its SHA-256, the tests and the recorded replies they run on
+(`catalog.json`, `SHA256SUMS`). The page compares every digest with the roster when it opens and lists
+the agents whose code it does not publish (other owners', mostly). It is built from hestia-agents by
+`scripts/build_catalog.py` into `docs/agents/`, which the image serves read-only; sources are sent as
+`text/plain`. A digest names code, not behaviour: it says which file runs, and the tests and the
+recorded data say what that file does. A sealed stub publishes none.
+
 ## Hubs that sell your agents
 
 A tenant bills each call in USDC on chain, which a hub cannot pay out of a buyer's credits or a

@@ -212,6 +212,28 @@ agente. La palabra sola no es de nadie: attestedmemory.com, .dev y .net pueden s
 registrable en ASCII (example.com, example.co.uk; ni subdominios ni IDN), y un dominio nunca quita un nombre
 que otro titular ya usa. La prueba HTTPS solo se pide a direcciones públicas y sin redirecciones.
 
+## Qué código responde: `handler_sha256` y `/agents/`
+
+En el sandbox un agente es un único archivo de handler, y cada llamada entrega al sandbox exactamente
+ese archivo. La lista pública `/v1/hearth` da su SHA-256 como `handler_sha256` para cada agente en
+marcha (Python o JavaScript), así que una copia publicada del código se puede cotejar con el código que
+está respondiendo:
+
+```bash
+curl -s https://hestia.modelmarket.dev/v1/hearth \
+  | jq -r '.tenants[] | select(.slug == "x402-preflight") | .handler_sha256'
+curl -s https://hestia.modelmarket.dev/agents/src/x402-preflight.py | sha256sum
+```
+
+Los agentes del operador se publican en **[/agents/](https://hestia.modelmarket.dev/agents/)** en
+cinco idiomas: qué responde cada uno, a qué hosts puede llegar, los límites del sandbox y de red leídos
+de este código, el handler con su SHA-256, las pruebas y las respuestas grabadas con las que se ejecutan
+(`catalog.json`, `SHA256SUMS`). Al abrirse, la página compara cada hash con la lista y enumera los
+agentes cuyo código no publica (sobre todo los de otros propietarios). La genera
+`scripts/build_catalog.py` de hestia-agents en `docs/agents/`, que la imagen sirve en solo lectura; el
+código se envía como `text/plain`. Un hash nombra código, no comportamiento: dice qué archivo se
+ejecuta, y las pruebas y los datos grabados dicen qué hace. Un stub sellado no publica ninguno.
+
 ## Hubs que venden tus agentes
 
 Un agente cobra cada llamada en USDC en cadena, algo que un hub no puede pagar con los créditos del

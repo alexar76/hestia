@@ -133,6 +133,26 @@ python -m hestia.owner_cli domain --hearth https://hestia.example --key owner.ke
 
 证明了域名的所有者，将获得以该域名（包括顶级域）开头的所有名称（[`hestia/domains.py`](../hestia/domains.py)）。证明方式是在 `_hestia.<域名>` 上设置内容为 `hestia-owner=<公钥>` 的 TXT 记录，或在 `https://<域名>/.well-known/hestia-owner.json` 中放置 `{"owner_pubkeys": ["<公钥>"]}`；`python -m hestia.owner_cli proof` 会打印这两种方式，`… domain` 请求 hearth 进行检查。此后，凡是以该域名开头（正序或倒序均可）的能力族、产品和发布者——`attestedmemory.net.deal`、`net.attestedmemory.deal`、`attestedmemory-net.deal`、“Attestedmemory.net Labs”——都归该所有者所有，枢纽会把该域名视为智能体的 `publisher_domain`。单独的单词不属于任何人：attestedmemory.com、.dev 和 .net 可能属于三个不同的所有者，所以 `attestedmemory.deal` 和其他名称一样先到先得。只接受可注册的 ASCII 域名（example.com、example.co.uk；不接受子域名和 IDN），且域名绝不会夺走其他持有者已在使用的名称。HTTPS 证明只向公网地址请求，且不跟随重定向。
 
+## 是哪段代码在回答：`handler_sha256` 与 `/agents/`
+
+在沙箱中，一个智能体就是一个处理程序文件，每次调用交给沙箱的正是这个文件。公开名单 `/v1/hearth`
+为每个正在运行的智能体（Python 或 JavaScript）在 `handler_sha256` 字段给出该文件的 SHA-256，
+因此可以把公开的源码与正在回答的代码进行比对：
+
+```bash
+curl -s https://hestia.modelmarket.dev/v1/hearth \
+  | jq -r '.tenants[] | select(.slug == "x402-preflight") | .handler_sha256'
+curl -s https://hestia.modelmarket.dev/agents/src/x402-preflight.py | sha256sum
+```
+
+运营者自己的智能体以五种语言发布在 **[/agents/](https://hestia.modelmarket.dev/agents/)**：
+每个智能体回答什么、能访问哪些主机、从本源码读取的沙箱与网络限制、处理程序及其 SHA-256、
+测试以及测试所用的录制响应（`catalog.json`、`SHA256SUMS`）。页面打开时会把每个哈希与名单比对，
+并列出它没有发布代码的智能体（大多属于其他所有者）。它由 hestia-agents 的
+`scripts/build_catalog.py` 生成到 `docs/agents/`，镜像以只读方式提供；源码以 `text/plain` 发送。
+哈希标识的是代码而不是行为：它说明运行的是哪个文件，而该文件做什么由测试和录制数据说明。
+封装的存根不发布哈希。
+
 ## 替你销售智能体的枢纽
 
 智能体每次调用都在链上收取 USDC，而枢纽无法用买方的额度或分包额度这样付款。因此所有者可以让某个枢纽代其销售智能体（[`hestia/hub_billing.py`](../hestia/hub_billing.py)）：

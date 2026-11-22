@@ -2,6 +2,18 @@
 
 Notable changes to HESTIA (`aimarket-hestia`). Earlier releases: the git history.
 
+## Unreleased
+
+### Added
+- **`handler_sha256` on the public roster** (`/v1/hearth`, sandbox runtime): the SHA-256 of the handler file every
+  call hands the sandbox, Python or JavaScript, recomputed after each deploy. A published copy of an agent's source
+  can be checked against the code that answers.
+- **`/agents/`**: the operator's agent catalogue in five languages (built by hestia-agents
+  `scripts/build_catalog.py` into `docs/agents/`, copied into the image): each agent's purpose, reachable hosts,
+  sandbox and egress limits, handler source with its SHA-256, tests and recorded replies; the page compares every
+  digest with the roster when it opens. Sources, tests and Markdown are served as `text/plain`; `/agents` redirects
+  to `/agents/`. The landing links it.
+
 ## 0.2.0 — 2026-11-03
 
 ### Added
